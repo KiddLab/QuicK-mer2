@@ -3,7 +3,7 @@
 #include "stdlib.h"
 #include <string.h>
 
-#define Hash_size 0x2000000
+#define Hash_size 0x200000000
 #define buffer_size 1024*1024
 
 const uint64_t Kmer_size = 30;
@@ -34,7 +34,7 @@ unsigned int DJBHash(char* str, unsigned int len)
 	unsigned int i    = 0;
 	for(i = 0; i < len; str++, i++)
 	{
-		hash = ((hash << 5) + hash) + (*str);
+		hash = ((hash << 5) + hash) ^ (*str);
 	}
 	return hash;
 }
@@ -109,7 +109,7 @@ int main_hash(int argc, char ** argv)
 	rewind(Hash_file);
 	const char Version[5] = "QM11";
 	fwrite(Version, 1, 4, Hash_file);
-	uint32_t Hashsize = Hash_size + 16384;
+	uint64_t Hashsize = Hash_size + 16384;
 	fwrite(&Hashsize, 4, 1, Hash_file);
 	fwrite(&first_index, 4, 1, Hash_file);
 	fwrite((void *) Kmer_hash, sizeof(uint64_t), Hash_size + 16384, Hash_file);
@@ -179,12 +179,14 @@ int main_count(int argc, char ** argv)
 					uint32_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
 					while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != kmer) hash_index++;
 					if (Kmer_hash[hash_index]) {
-						if (Kmer_depth[hash_index] != 65535) Kmer_depth[hash_index]++;
+						if (Kmer_depth[hash_index] != 65535)
+							__sync_fetch_and_add(&Kmer_depth[hash_index], 1);
 					} else {
 						//Reverse Complement
 						hash_index = DJBHash_encode(encoded_r) & (Hash_size - 1);
 						while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != encoded_r) hash_index++;
-						if (Kmer_hash[hash_index] && Kmer_depth[hash_index] != 65535) Kmer_depth[hash_index]++;
+						if (Kmer_hash[hash_index] && Kmer_depth[hash_index] != 65535)
+							__sync_fetch_and_add(&Kmer_depth[hash_index], 1);
 					}
 				}
 			}
@@ -214,9 +216,107 @@ int main_count(int argc, char ** argv)
 	return 0;
 }
 
+int main_search(int argc, char ** argv)
+{
+	//Malloc
+	uint64_t * Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
+	uint32_t * Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
+	uint8_t * Kmer_occr = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
+	uint8_t * Kmer_edit_depth = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
+	if (!Kmer_hash || !Kmer_next_index)
+	{
+		puts("Memory allocation failed");
+		return 1;
+	}
+	FILE * fasta = fopen(argv[0], "r");
+	char fasta_buffer[200];
+	uint8_t charge_size = 0;
+	uint64_t encoded = 0;
+	uint64_t encoded_r = 0;
+	uint64_t processed = 0;
+	uint32_t worst = 0;
+	uint32_t hist[262143] = {0};
+	//Loop through fasta lines
+	while (fgets (fasta_buffer, 200, fasta) && fasta_buffer[0])
+	{
+		char * char_idx = fasta_buffer;
+		if (*char_idx == '>')
+		{
+			charge_size = 0;
+			encoded = 0;
+			encoded_r = 0;
+			printf("%s", fasta_buffer);
+			continue;
+		}
+		while (*char_idx && *char_idx != '\n')
+		{
+			uint8_t Letter = (*char_idx >> 1) & 3;
+			char_idx++;
+			encoded <<= 2;
+			encoded |= Letter;
+			Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
+			encoded_r |= (uint64_t)Letter << 60;
+			encoded_r >>= 2;
+			uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
+			uint64_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
+			if (charge_size < Kmer_size) charge_size++;
+			if (kmer && charge_size == Kmer_size)
+			{
+				//Add to hash memory
+				uint32_t collision = 0;
+				while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != kmer)
+				{
+					hash_index++;
+					collision++;
+				}
+				if (!Kmer_hash[hash_index])
+				{
+					if (collision > worst){
+						worst = collision;
+						printf("Worst %u\n", worst);
+					}
+					if (collision < 262143) hist[collision]++;
+					Kmer_hash[hash_index] = kmer;
+				}
+				Kmer_occr[hash_index]++;
+				hash_index = DJBHash_encode(encoded_r) & (Hash_size - 1);
+				collision = 0;
+				while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != encoded_r)
+				{
+					hash_index++;
+					collision++;
+				}
+				if (!Kmer_hash[hash_index])
+				{
+					if (collision > worst){
+						worst = collision;
+						printf("Worst %u\n", worst);
+					}
+					if (collision < 262143) hist[collision]++;
+					Kmer_hash[hash_index] = encoded_r;
+				}
+				Kmer_occr[hash_index]++;
+			}
+		}
+		processed++;
+		if (processed % 1666667 == 0){
+			float average = 0;
+			uint64_t count = 0;
+			for (uint32_t k = 0; k < 262144; k++){
+				count += hist[k];
+				average += k * hist[k];
+			}
+			average /= count;
+			printf("Processed %ubp, total %u Kmers, average collision %f\n",processed*60, count, average);
+		}
+	}
+	//Filter 
+	
+}
+
 void printversion() {
 	puts("QuicK-mer 2.0");
-	puts("Operation modes: \n\tindex\tIndex a kmer list\n\tcount\tCNV estimate from library");
+	puts("Operation modes: \n\tindex\tIndex a kmer list\n\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome\n");
 }
 
 int main(int argc, char** argv)
@@ -226,6 +326,8 @@ int main(int argc, char** argv)
 			return main_hash(argc-2, argv+2);
 		else if (strcmp(argv[1], "count") == 0)
 			return main_count(argc-2, argv+2);
+		else if (strcmp(argv[1], "search") == 0)
+			return main_search(argc-2, argv+2);
 		else {
 			printversion();
 			return 1;
