@@ -1,12 +1,14 @@
 #include "stdint.h"
 #include "stdio.h"
 #include "stdlib.h"
-#include <string.h>
+#include "string.h"
+#include "siphash24.h"
 
 #define Hash_size 0x200000000
 #define buffer_size 1024*1024
 
 const uint64_t Kmer_size = 30;
+const uint8_t key = 42;
 
 uint64_t Kmer_encode(char * kmer){
 	uint64_t encoded = 0;
@@ -39,15 +41,20 @@ unsigned int DJBHash(char* str, unsigned int len)
 	return hash;
 }
 
-unsigned int DJBHash_encode(uint64_t kmer)
+uint64_t DJBHash_encode(uint64_t kmer)
 {
-	unsigned int hash = 5381;
-	unsigned int i    = 0;
+	
+	uint64_t hash = 5381;
+	uint8_t i = 0;
 	for(i = 0; i < 8; i++)
 	{
 		hash = ((hash << 5) + hash) + ((kmer & 0xFF));
 		kmer >>= 8;
 	}
+	
+	//uint64_t hash;
+	//siphash(&hash,(uint8_t *) &kmer, 8, &key);
+	
 	return hash;
 }
 
@@ -235,7 +242,7 @@ int main_search(int argc, char ** argv)
 	uint64_t encoded_r = 0;
 	uint64_t processed = 0;
 	uint32_t worst = 0;
-	uint32_t hist[262143] = {0};
+	uint32_t hist[131071] = {0};
 	//Loop through fasta lines
 	while (fgets (fasta_buffer, 200, fasta) && fasta_buffer[0])
 	{
@@ -275,7 +282,8 @@ int main_search(int argc, char ** argv)
 						worst = collision;
 						printf("Worst %u\n", worst);
 					}
-					if (collision < 262143) hist[collision]++;
+					if (collision < 131071) hist[collision]++;
+					else hist[131071]++;
 					Kmer_hash[hash_index] = kmer;
 				}
 				Kmer_occr[hash_index]++;
@@ -292,7 +300,8 @@ int main_search(int argc, char ** argv)
 						worst = collision;
 						printf("Worst %u\n", worst);
 					}
-					if (collision < 262143) hist[collision]++;
+					if (collision < 131071) hist[collision]++;
+					else hist[131071]++;
 					Kmer_hash[hash_index] = encoded_r;
 				}
 				Kmer_occr[hash_index]++;
@@ -302,7 +311,7 @@ int main_search(int argc, char ** argv)
 		if (processed % 1666667 == 0){
 			float average = 0;
 			uint64_t count = 0;
-			for (uint32_t k = 0; k < 262144; k++){
+			for (uint32_t k = 0; k < 131072; k++){
 				count += hist[k];
 				average += k * hist[k];
 			}
@@ -310,6 +319,13 @@ int main_search(int argc, char ** argv)
 			printf("Processed %ubp, total %u Kmers, average collision %f\n",processed*60, count, average);
 		}
 	}
+	float average = 0;
+	uint64_t count = 0;
+	for (uint32_t k = 0; k < 131072; k++){
+		count += hist[k];
+		average += k * hist[k];
+	}
+	printf("Average %f, fill %f\% \n", average/count, ((float) count * 100)/ Hash_size);
 	//Filter 
 	
 }
