@@ -4,7 +4,8 @@
 #include "string.h"
 #include "siphash24.h"
 
-#define Hash_size 0x200000000
+//#define Hash_size 0x100000000
+#define Hash_size 0x2000000
 #define buffer_size 1024*1024
 
 const uint64_t Kmer_size = 30;
@@ -12,7 +13,7 @@ const uint8_t key = 42;
 
 uint64_t Kmer_encode(char * kmer){
 	uint64_t encoded = 0;
-	//printf("%s\t",kmer);
+	uint64_t encoded_r = 0;
 	do {
 		if (!*kmer) break;
 		encoded <<= 2;
@@ -23,10 +24,15 @@ uint64_t Kmer_encode(char * kmer){
 				case 'G': encoded |= 2; break;
 				case 'C': encoded |= 3; break;
 		}*/
-		encoded |= (*kmer >> 1) & 3;
+		uint8_t Letter = (*kmer >> 1) & 3;
+		encoded |= Letter;
+		Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
+		encoded_r |= (uint64_t)Letter << 60;
+		encoded_r >>= 2;
 	}
 	while (kmer++);
 	//printf("%07X%08X\n",encoded >> 32, encoded);
+	if (encoded > encoded_r) return encoded_r;
 	return encoded;
 }
 
@@ -184,15 +190,10 @@ int main_count(int argc, char ** argv)
 				if (cur_chars >= Kmer_size) {
 					uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
 					uint32_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
+					if (kmer > encoded_r) kmer = encoded_r;
 					while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != kmer) hash_index++;
 					if (Kmer_hash[hash_index]) {
 						if (Kmer_depth[hash_index] != 65535)
-							__sync_fetch_and_add(&Kmer_depth[hash_index], 1);
-					} else {
-						//Reverse Complement
-						hash_index = DJBHash_encode(encoded_r) & (Hash_size - 1);
-						while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != encoded_r) hash_index++;
-						if (Kmer_hash[hash_index] && Kmer_depth[hash_index] != 65535)
 							__sync_fetch_and_add(&Kmer_depth[hash_index], 1);
 					}
 				}
@@ -257,6 +258,13 @@ int main_search(int argc, char ** argv)
 		}
 		while (*char_idx && *char_idx != '\n')
 		{
+			if (*char_idx == 'N'){
+				charge_size = 0;
+				encoded = 0;
+				encoded_r = 0;
+				char_idx++;
+				continue;
+			}
 			uint8_t Letter = (*char_idx >> 1) & 3;
 			char_idx++;
 			encoded <<= 2;
@@ -265,6 +273,7 @@ int main_search(int argc, char ** argv)
 			encoded_r |= (uint64_t)Letter << 60;
 			encoded_r >>= 2;
 			uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
+			if (kmer > encoded_r) kmer = encoded_r;
 			uint64_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
 			if (charge_size < Kmer_size) charge_size++;
 			if (kmer && charge_size == Kmer_size)
@@ -287,24 +296,6 @@ int main_search(int argc, char ** argv)
 					Kmer_hash[hash_index] = kmer;
 				}
 				Kmer_occr[hash_index]++;
-				hash_index = DJBHash_encode(encoded_r) & (Hash_size - 1);
-				collision = 0;
-				while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != encoded_r)
-				{
-					hash_index++;
-					collision++;
-				}
-				if (!Kmer_hash[hash_index])
-				{
-					if (collision > worst){
-						worst = collision;
-						printf("Worst %u\n", worst);
-					}
-					if (collision < 131071) hist[collision]++;
-					else hist[131071]++;
-					Kmer_hash[hash_index] = encoded_r;
-				}
-				Kmer_occr[hash_index]++;
 			}
 		}
 		processed++;
@@ -316,7 +307,7 @@ int main_search(int argc, char ** argv)
 				average += k * hist[k];
 			}
 			average /= count;
-			printf("Processed %ubp, total %u Kmers, average collision %f\n",processed*60, count, average);
+			printf("Processed %ubp, total %u Kmers, average collision %f\n", processed*60, count, average);
 		}
 	}
 	float average = 0;
@@ -326,6 +317,14 @@ int main_search(int argc, char ** argv)
 		average += k * hist[k];
 	}
 	printf("Average %f, fill %f\% \n", average/count, ((float) count * 100)/ Hash_size);
+	uint64_t occr_idx = 0;
+	uint64_t unique_count = 0;
+	while (occr_idx < Hash_size+16384)
+	{
+		if (Kmer_occr[occr_idx] == 1) unique_count++;
+		occr_idx++;
+	}
+	printf("Uniq count %u\n", unique_count);
 	//Filter 
 	
 }
