@@ -2,13 +2,14 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
-#include "siphash24.h"
+//#include "siphash24.h"
 
-//#define Hash_size 0x100000000
-#define Hash_size 0x2000000
+#define Hash_size 0x100000000
+//#define Hash_size 0x2000000
 #define buffer_size 1024*1024
 
 const uint64_t Kmer_size = 30;
+const uint64_t Kmer_mask = ((uint64_t)1 << (Kmer_size * 2)) - 1;
 const uint8_t key = 42;
 
 uint64_t Kmer_encode(char * kmer){
@@ -31,20 +32,9 @@ uint64_t Kmer_encode(char * kmer){
 		encoded_r >>= 2;
 	}
 	while (kmer++);
-	//printf("%07X%08X\n",encoded >> 32, encoded);
+	//printf("%llX\n",encoded);
 	if (encoded > encoded_r) return encoded_r;
 	return encoded;
-}
-
-unsigned int DJBHash(char* str, unsigned int len)
-{
-	unsigned int hash = 5381;
-	unsigned int i    = 0;
-	for(i = 0; i < len; str++, i++)
-	{
-		hash = ((hash << 5) + hash) ^ (*str);
-	}
-	return hash;
 }
 
 uint64_t DJBHash_encode(uint64_t kmer)
@@ -62,6 +52,43 @@ uint64_t DJBHash_encode(uint64_t kmer)
 	//siphash(&hash,(uint8_t *) &kmer, 8, &key);
 	
 	return hash;
+}
+
+uint64_t Permute_kmer(uint64_t encoded_kmer, uint64_t encoded_reverse, char position, char edit)
+{
+	//return the permuted_kmer
+	uint64_t base = ((encoded_kmer >> (position << 1)) & 3) + edit;
+	base &= 3;
+	encoded_kmer &= Kmer_mask - (3 << (position << 1));
+	encoded_kmer |= base << (position << 1);
+	base = (base - 2) & 3;
+	encoded_reverse &= Kmer_mask - (3 << (Kmer_size - 1 - position)*2);
+	encoded_reverse |= base << (Kmer_size - 1 - position)*2;
+	if (encoded_kmer > encoded_reverse) return encoded_reverse;
+	return encoded_kmer;
+}
+
+char Find_hash(uint64_t encoded_kmer, uint64_t * hash_index, uint64_t * Hash_dict)
+{
+	*hash_index = DJBHash_encode(encoded_kmer) & (Hash_size-1);
+	while (Hash_dict[*hash_index] && Hash_dict[*hash_index] != encoded_kmer)
+	{
+		*hash_index++;
+	}
+	return Hash_dict[*hash_index] == encoded_kmer;
+}
+
+uint64_t Reverse_strand_encoded(uint64_t encoded_kmer)
+{
+	uint64_t encoded_reverse = 0;
+	uint8_t index;
+	for (index = 0; index < Kmer_size; index++){
+		encoded_reverse <<= 2;
+		encoded_reverse |= ((encoded_kmer & 3)-2) & 3;
+		
+		encoded_kmer >>= 2;
+	}
+	return encoded_reverse;
 }
 
 int main_hash(int argc, char ** argv)
@@ -92,8 +119,8 @@ int main_hash(int argc, char ** argv)
 	uint32_t hist[8192] = {0};
 	while (fscanf(kmer_list, "%s\t%u\t%u\t%s\t%s", chrom, &kmer_start, &kmer_end, rs, kmer) == 5)
 	{
-		uint64_t kmer_value = Kmer_encode(kmer);
-		uint32_t hash_index = DJBHash_encode(kmer_value);
+		uint64_t kmer_encoded = Kmer_encode(kmer);
+		uint32_t hash_index = DJBHash_encode(kmer_encoded);
 		//uint32_t hash_index = DJBHash(kmer_cstr, 30);
 		hash_index &= (Hash_size-1);
 		uint32_t worst = 0;
@@ -101,7 +128,7 @@ int main_hash(int argc, char ** argv)
 			hash_index++;
 			worst++;
 		}
-		Kmer_hash[hash_index] = kmer_value;
+		Kmer_hash[hash_index] = kmer_encoded;
 		Kmer_next_index[last_index] = hash_index;
 		if (!first_index) first_index = hash_index;
 		last_index = hash_index;
@@ -189,8 +216,8 @@ int main_count(int argc, char ** argv)
 				//Hash
 				if (cur_chars >= Kmer_size) {
 					uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
-					uint32_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
 					if (kmer > encoded_r) kmer = encoded_r;
+					uint32_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
 					while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != kmer) hash_index++;
 					if (Kmer_hash[hash_index]) {
 						if (Kmer_depth[hash_index] != 65535)
@@ -324,9 +351,40 @@ int main_search(int argc, char ** argv)
 		if (Kmer_occr[occr_idx] == 1) unique_count++;
 		occr_idx++;
 	}
-	printf("Uniq count %u\n", unique_count);
-	//Filter 
-	
+	printf("Uniq count %u, total %u\n", unique_count, count);
+	//Filter
+	occr_idx = 0;
+	count = 0;
+	while (occr_idx < Hash_size+16384)
+	{
+		if (Kmer_occr[occr_idx] == 1)
+		{
+			encoded = Kmer_hash[occr_idx];
+			encoded_r = Reverse_strand_encoded(encoded);
+			for (char per_idx = 0; per_idx < Kmer_size; per_idx++)
+			{
+				uint64_t hash_index;
+				for (char per_value = 1; per_value < 4; per_value++)
+					if (Find_hash(Permute_kmer(encoded, encoded_r, per_idx, per_value),&hash_index,Kmer_hash))
+						Kmer_edit_depth[occr_idx] += Kmer_occr[hash_index];
+			}
+			count++;
+			//if (count % 1000000 == 0) printf("%u\n", count);
+		}
+		occr_idx++;
+	}
+	//First round on high frequency mers
+	occr_idx = 0;
+	count = 0;
+	while (occr_idx < Hash_size+16384)
+	{
+		if (Kmer_occr[occr_idx] == 1 && Kmer_edit_depth[occr_idx] < 100)
+		{
+			count++;
+		}
+		occr_idx++;
+	}
+	printf("%u unique kmers \n", count);
 }
 
 void printversion() {
