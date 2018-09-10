@@ -2,7 +2,7 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
-//#include "siphash24.h"
+#include "pthread.h"
 
 #define Hash_size 0x100000000
 //#define Hash_size 0x2000000
@@ -11,6 +11,19 @@
 const uint64_t Kmer_size = 30;
 const uint64_t Kmer_mask = ((uint64_t)1 << (Kmer_size * 2)) - 1;
 const uint8_t key = 42;
+
+//Global Variables
+uint64_t * Kmer_hash;
+uint32_t * Kmer_next_index;
+uint8_t * Kmer_occr;
+uint8_t * Kmer_edit_depth;
+uint8_t edit_distance;
+
+struct edit_dis_arg_struc {
+	uint64_t start_idx;
+	uint64_t end_idx;
+	uint8_t thread_id;
+};
 
 uint64_t Kmer_encode(char * kmer){
 	uint64_t encoded = 0;
@@ -50,22 +63,19 @@ uint64_t DJBHash_encode(uint64_t kmer)
 	
 	//uint64_t hash;
 	//siphash(&hash,(uint8_t *) &kmer, 8, &key);
-	
 	return hash;
 }
 
-uint64_t Permute_kmer(uint64_t encoded_kmer, uint64_t encoded_reverse, char position, char edit)
+void Permute_kmer(uint64_t *encoded_kmer, uint64_t *encoded_reverse, char position, char edit)
 {
 	//return the permuted_kmer
-	uint64_t base = ((encoded_kmer >> (position << 1)) & 3) + edit;
+	uint64_t base = ((*encoded_kmer >> (position << 1)) & 3) + edit;
 	base &= 3;
-	encoded_kmer &= Kmer_mask - (3 << (position << 1));
-	encoded_kmer |= base << (position << 1);
+	(*encoded_kmer) &= Kmer_mask - (3 << (position << 1));
+	(*encoded_kmer) |= base << (position << 1);
 	base = (base - 2) & 3;
-	encoded_reverse &= Kmer_mask - (3 << (Kmer_size - 1 - position)*2);
-	encoded_reverse |= base << (Kmer_size - 1 - position)*2;
-	if (encoded_kmer > encoded_reverse) return encoded_reverse;
-	return encoded_kmer;
+	(*encoded_reverse) &= Kmer_mask - (3 << (Kmer_size - 1 - position)*2);
+	(*encoded_reverse) |= base << (Kmer_size - 1 - position)*2;
 }
 
 char Find_hash(uint64_t encoded_kmer, uint64_t * hash_index, uint64_t * Hash_dict)
@@ -73,7 +83,7 @@ char Find_hash(uint64_t encoded_kmer, uint64_t * hash_index, uint64_t * Hash_dic
 	*hash_index = DJBHash_encode(encoded_kmer) & (Hash_size-1);
 	while (Hash_dict[*hash_index] && Hash_dict[*hash_index] != encoded_kmer)
 	{
-		*hash_index++;
+		(*hash_index)++;
 	}
 	return Hash_dict[*hash_index] == encoded_kmer;
 }
@@ -106,8 +116,8 @@ int main_hash(int argc, char ** argv)
 	char kmer[60];
 	char rs[60];
 	//Malloc
-	uint64_t * Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
-	uint32_t * Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
+	Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
+	Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
 	if (!Kmer_hash || !Kmer_next_index)
 	{
 		puts("Memory allocation failed");
@@ -174,7 +184,7 @@ int main_count(int argc, char ** argv)
 	uint32_t first_idx;
 	fread(&first_idx, 1, 4, Hash_file);
 	printf("Hash Size: %i\nFirst location: %i\n", Hashsize, first_idx);
-	uint64_t * Kmer_hash = (uint64_t *) malloc(Hashsize * sizeof(uint64_t));
+	Kmer_hash = (uint64_t *) malloc(Hashsize * sizeof(uint64_t));
 	if (!Kmer_hash) {
 		puts("Memory allocation failed");
 		fclose(Hash_file);
@@ -251,14 +261,59 @@ int main_count(int argc, char ** argv)
 	return 0;
 }
 
+void Recurse_edit(uint8_t Edits, uint64_t encoded, uint64_t encoded_r, uint8_t per_base, uint64_t kmer_idx)
+{
+	Edits--;
+	for (char per_idx = 0; per_idx < per_base; per_idx++)
+	{
+		for (char per_value = 1; per_value < 4; per_value++)
+		{
+			uint64_t local_encoded = encoded;
+			uint64_t local_encoded_r = encoded_r;
+			Permute_kmer(&local_encoded, &local_encoded_r, per_idx, per_value);
+			//Recursive edit the kmer
+			if (Edits)
+				Recurse_edit(Edits, local_encoded, local_encoded_r, per_idx, kmer_idx);
+			//Find hash and finish
+			uint64_t hash_index;
+			if (local_encoded > local_encoded_r) local_encoded = local_encoded_r;
+			if (Find_hash(local_encoded,&hash_index,Kmer_hash))
+				Kmer_edit_depth[kmer_idx] += Kmer_occr[hash_index];
+		}
+	}
+}
+
+void * Kmer_filter_TSK(void *argvs)
+{
+	struct edit_dis_arg_struc *edit_dis_arg = (struct edit_dis_arg_struc *) argvs;
+	uint64_t thread_cur_idx = edit_dis_arg -> start_idx;
+	uint64_t thread_end_idx = edit_dis_arg -> end_idx;
+	uint8_t thread_ID = edit_dis_arg -> thread_id;
+	printf("Thread %d %u %u\n", thread_ID, thread_cur_idx, thread_end_idx);
+	uint64_t count = 0;
+	while (thread_cur_idx < thread_end_idx)
+	{
+		if (Kmer_occr[thread_cur_idx] == 1)
+		{
+			uint64_t encoded = Kmer_hash[thread_cur_idx];
+			uint64_t encoded_r = Reverse_strand_encoded(encoded);
+			Recurse_edit(edit_distance, encoded, encoded_r, Kmer_size, thread_cur_idx);
+			count++;
+			if ((count & 0xFFFFF) == 0) printf("Thread %u %uM\n", thread_ID, count >> 20);
+		}
+		thread_cur_idx++;
+	}
+	printf("Thread %i finished\n", thread_ID);
+}
+
 int main_search(int argc, char ** argv)
 {
 	//Malloc
-	uint64_t * Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
-	uint32_t * Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
-	uint8_t * Kmer_occr = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
-	uint8_t * Kmer_edit_depth = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
-	if (!Kmer_hash || !Kmer_next_index)
+	Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
+	//Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
+	Kmer_occr = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
+	Kmer_edit_depth = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
+	if (!Kmer_hash || !Kmer_edit_depth || !Kmer_occr)
 	{
 		puts("Memory allocation failed");
 		return 1;
@@ -270,7 +325,7 @@ int main_search(int argc, char ** argv)
 	uint64_t encoded_r = 0;
 	uint64_t processed = 0;
 	uint32_t worst = 0;
-	uint32_t hist[131071] = {0};
+	uint32_t hist[65536] = {0};
 	//Loop through fasta lines
 	while (fgets (fasta_buffer, 200, fasta) && fasta_buffer[0])
 	{
@@ -318,8 +373,8 @@ int main_search(int argc, char ** argv)
 						worst = collision;
 						printf("Worst %u\n", worst);
 					}
-					if (collision < 131071) hist[collision]++;
-					else hist[131071]++;
+					if (collision < 65536) hist[collision]++;
+					else hist[65535]++;
 					Kmer_hash[hash_index] = kmer;
 				}
 				Kmer_occr[hash_index]++;
@@ -329,7 +384,7 @@ int main_search(int argc, char ** argv)
 		if (processed % 1666667 == 0){
 			float average = 0;
 			uint64_t count = 0;
-			for (uint32_t k = 0; k < 131072; k++){
+			for (uint32_t k = 0; k < 65536; k++){
 				count += hist[k];
 				average += k * hist[k];
 			}
@@ -339,7 +394,7 @@ int main_search(int argc, char ** argv)
 	}
 	float average = 0;
 	uint64_t count = 0;
-	for (uint32_t k = 0; k < 131072; k++){
+	for (uint32_t k = 0; k < 65536; k++){
 		count += hist[k];
 		average += k * hist[k];
 	}
@@ -353,38 +408,43 @@ int main_search(int argc, char ** argv)
 	}
 	printf("Uniq count %u, total %u\n", unique_count, count);
 	//Filter
-	occr_idx = 0;
-	count = 0;
-	while (occr_idx < Hash_size+16384)
+	edit_distance = 2; //Default setting
+	uint8_t thread_count = 8;
+	uint64_t thread_seg_count = Hash_size / thread_count;
+	uint64_t Thread_start_idx = 0;
+	uint8_t thd_idx;
+	pthread_t *tid = new pthread_t[thread_count];
+	edit_dis_arg_struc *arg_arr = new edit_dis_arg_struc[thread_count];
+	for (thd_idx = 1; thd_idx < thread_count; thd_idx++)
 	{
-		if (Kmer_occr[occr_idx] == 1)
-		{
-			encoded = Kmer_hash[occr_idx];
-			encoded_r = Reverse_strand_encoded(encoded);
-			for (char per_idx = 0; per_idx < Kmer_size; per_idx++)
-			{
-				uint64_t hash_index;
-				for (char per_value = 1; per_value < 4; per_value++)
-					if (Find_hash(Permute_kmer(encoded, encoded_r, per_idx, per_value),&hash_index,Kmer_hash))
-						Kmer_edit_depth[occr_idx] += Kmer_occr[hash_index];
-			}
-			count++;
-			//if (count % 1000000 == 0) printf("%u\n", count);
-		}
-		occr_idx++;
+		arg_arr[thd_idx].start_idx = Thread_start_idx;
+		arg_arr[thd_idx].end_idx = Thread_start_idx + thread_seg_count;
+		arg_arr[thd_idx].thread_id = thd_idx;
+		Thread_start_idx += thread_seg_count;
+		pthread_create(&tid[thd_idx], NULL, Kmer_filter_TSK, &arg_arr[thd_idx]);
 	}
-	//First round on high frequency mers
+	arg_arr[0].start_idx = Thread_start_idx;
+	arg_arr[0].end_idx = Hash_size + 16384;
+	arg_arr[0].thread_id = 0;
+	Kmer_filter_TSK(&arg_arr[0]); //Default thread
+	//Join threads
+	for (thd_idx = 1; thd_idx < thread_count; thd_idx++)
+	{
+		pthread_join(tid[thd_idx], NULL);
+	}
+	delete tid;
+	delete arg_arr;
+	//High frequency mers stats
 	occr_idx = 0;
 	count = 0;
 	while (occr_idx < Hash_size+16384)
 	{
-		if (Kmer_occr[occr_idx] == 1 && Kmer_edit_depth[occr_idx] < 100)
-		{
-			count++;
-		}
+		if (Kmer_occr[occr_idx] == 1 && Kmer_edit_depth[occr_idx] < 100) count++;
 		occr_idx++;
 	}
 	printf("%u unique kmers \n", count);
+	//Dump K-mer in second pass
+	
 }
 
 void printversion() {
