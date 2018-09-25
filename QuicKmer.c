@@ -18,6 +18,7 @@ uint32_t * Kmer_next_index;
 uint8_t * Kmer_occr;
 uint8_t * Kmer_edit_depth;
 uint8_t edit_distance;
+uint8_t Edit_depth_thres = 100;
 
 struct edit_dis_arg_struc {
 	uint64_t start_idx;
@@ -439,11 +440,65 @@ int main_search(int argc, char ** argv)
 	count = 0;
 	while (occr_idx < Hash_size+16384)
 	{
-		if (Kmer_occr[occr_idx] == 1 && Kmer_edit_depth[occr_idx] < 100) count++;
+		if (Kmer_occr[occr_idx] == 1 && Kmer_edit_depth[occr_idx] < Edit_depth_thres) count++;
 		occr_idx++;
 	}
-	printf("%u unique kmers \n", count);
+	printf("%u kmers after filter\n", count);
 	//Dump K-mer in second pass
+	fseek(fasta, 0, SEEK_SET);
+	FILE * Kmer_list = fopen(argv[1], "w");
+	char chrom_name[128];
+	char str_buf[256];
+	uint64_t chr_pos;
+	char Kmer_text[Kmer_size+1];
+	while (fgets(fasta_buffer, 200, fasta) && fasta_buffer[0])
+	{
+		char * char_idx = fasta_buffer;
+		if (*char_idx == '>')
+		{
+			charge_size = 0;
+			encoded = 0;
+			encoded_r = 0;
+			chr_pos = 0;
+			strncpy(chrom_name, char_idx+1, strlen(fasta_buffer)-2);
+			continue;
+		}
+		while (*char_idx && *char_idx != '\n')
+		{
+			chr_pos++;
+			memmove(Kmer_text,Kmer_text+1,Kmer_size-1);
+			Kmer_text[Kmer_size-1] = *char_idx;
+			if (*char_idx == 'N'){
+				charge_size = 0;
+				encoded = 0;
+				encoded_r = 0;
+				char_idx++;
+				continue;
+			}
+			uint8_t Letter = (*char_idx >> 1) & 3;
+			char_idx++;
+			encoded <<= 2;
+			encoded |= Letter;
+			Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
+			encoded_r |= (uint64_t)Letter << 60;
+			encoded_r >>= 2;
+			uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
+			if (kmer > encoded_r) kmer = encoded_r;
+			if (charge_size < Kmer_size) charge_size++;
+			if (kmer && charge_size == Kmer_size)
+			{
+				uint64_t hash_index;
+				Find_hash(kmer, &hash_index, Kmer_hash);
+				if (Kmer_occr[hash_index] == 1 && Kmer_edit_depth[hash_index] < Edit_depth_thres)
+				{
+					sprintf(str_buf, "%s\t%u\t%u\t%s\n", chrom_name, chr_pos-charge_size, chr_pos, Kmer_text);
+					fputs(str_buf, Kmer_list);
+				}
+			}
+		}
+	}
+	fclose(Kmer_list);
+	puts("Kmer search finished!");
 	
 }
 
