@@ -3,9 +3,11 @@
 #include "stdlib.h"
 #include "string.h"
 #include "pthread.h"
+#include <unistd.h>
+#include "time.h"
 
-#define Hash_size 0x100000000
-//#define Hash_size 0x2000000
+//#define Hash_size 0x100000000
+#define Hash_size 0x2000000
 #define buffer_size 1024*1024
 
 const uint64_t Kmer_size = 30;
@@ -17,12 +19,21 @@ uint64_t * Kmer_hash;
 uint32_t * Kmer_next_index;
 uint8_t * Kmer_occr;
 uint8_t * Kmer_edit_depth;
+uint16_t * Kmer_depth;
 uint8_t edit_distance;
 uint8_t Edit_depth_thres = 100;
+uint8_t thread_no_more_data = 0; //Set this flag when input stream finish
 
 struct edit_dis_arg_struc {
 	uint64_t start_idx;
 	uint64_t end_idx;
+	uint8_t thread_id;
+};
+
+struct FIFO_arg_struc {
+	uint64_t * FIFO; //Address to 256 deep fifo
+	uint8_t * Write_count; //Write addr
+	uint8_t * Read_count; //Read addr
 	uint8_t thread_id;
 };
 
@@ -176,8 +187,50 @@ int main_hash(int argc, char ** argv)
 	return 0;
 }
 
+void * Kmer_count_TSK(void *argvs)
+{
+	struct FIFO_arg_struc *argv = (struct FIFO_arg_struc *) argvs;
+	uint64_t * Kmers = argv -> FIFO;
+	volatile uint8_t * Write_idx = argv -> Write_count;
+	volatile uint8_t * Read_idx = argv -> Read_count;
+	printf("T%i %lX %lX\n",argv -> thread_id, Write_idx, Read_idx);
+	clock_t wait_before, thd_begin_time, total_time;
+	thd_begin_time = clock();
+	total_time = 0;
+	uint64_t total_processed = 0;
+	uint8_t last_wait = 0;
+	while(1) {
+		
+		if (*Read_idx == *Write_idx) {
+			if (last_wait == 0){
+				last_wait = 1;
+				wait_before = clock();
+			}
+			if (thread_no_more_data) break;
+			else continue;
+		}
+		
+		if (last_wait) {
+			total_time += clock()-wait_before;
+			last_wait = 0;
+		}
+		//fprintf(stderr,"thread%d %d %d\n",argv -> thread_id, *Read_idx, *Write_idx);
+		uint64_t kmer = Kmers[*Read_idx];
+		(*Read_idx)++;
+		
+		uint64_t hash_index;
+		if (Find_hash(kmer, &hash_index, Kmer_hash))
+			__sync_fetch_and_add(&Kmer_depth[hash_index], 1);
+		total_processed++;
+		if ((total_processed & 0xFFFFF) == 0)
+			printf("thd%i %f\n",argv -> thread_id, (float) total_time/(clock()-thd_begin_time));
+	}
+}
+
 int main_count(int argc, char ** argv)
 {
+	//Thread count
+	uint8_t thread_count = 1;
 	FILE * Hash_file = fopen(argv[0], "r");
 	uint32_t Hashsize;
 	fseek(Hash_file, 4, 0);
@@ -192,7 +245,7 @@ int main_count(int argc, char ** argv)
 		return 1;
 	}
 	printf("Read %i hash\n",fread(Kmer_hash, sizeof(uint64_t), Hashsize, Hash_file));
-	uint16_t * Kmer_depth = (uint16_t *) calloc(Hashsize, sizeof(uint16_t));
+	Kmer_depth = (uint16_t *) calloc(Hashsize, sizeof(uint16_t));
 	if (!Kmer_depth) {
 		puts("Memory allocation failed");
 		free(Kmer_hash);
@@ -203,7 +256,37 @@ int main_count(int argc, char ** argv)
 	if (!fasta_input) {
 		puts("Input open fail");
 	}
+	//Thread pool initialization
+	uint8_t thd_idx;
+	pthread_t *tid;
+	FIFO_arg_struc *arg_arr;
+	uint64_t * FIFO_buff_pool;
+	uint8_t * Write_idx;
+	uint8_t * Read_idx;
+	if (thread_count >1)
+	{
+		tid = new pthread_t[thread_count];
+		arg_arr = new FIFO_arg_struc[thread_count];
+		FIFO_buff_pool = new uint64_t [thread_count << 8]; //allocate thread_count *256 buffer
+		
+		Write_idx = new uint8_t[thread_count];
+		Read_idx = new uint8_t[thread_count];
+		printf("addr FIFO %lX Write index %lX Read index %lX\n",FIFO_buff_pool, Write_idx, Read_idx);
+		for (thd_idx = 0; thd_idx < thread_count; thd_idx++)
+		{
+			arg_arr[thd_idx].FIFO = FIFO_buff_pool + (thd_idx << 8);
+			arg_arr[thd_idx].Write_count = &Write_idx[thd_idx];
+			arg_arr[thd_idx].Read_count = &Read_idx[thd_idx];
+			arg_arr[thd_idx].thread_id = thd_idx;
+			pthread_create(&tid[thd_idx], NULL, Kmer_count_TSK, &arg_arr[thd_idx]);
+		}
+	}
+	//End thread pool
+	
 	char line[350];
+	thd_idx = 0;
+	char pushed;
+	uint64_t process_kmers = 0;
 	while (fgets(line, 350, fasta_input)){
 		if (line[0] == '>') continue;
 		char * seq_char_index = line;
@@ -228,17 +311,47 @@ int main_count(int argc, char ** argv)
 				if (cur_chars >= Kmer_size) {
 					uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
 					if (kmer > encoded_r) kmer = encoded_r;
-					uint32_t hash_index = DJBHash_encode(kmer) & (Hash_size - 1);
-					while (Kmer_hash[hash_index] && Kmer_hash[hash_index] != kmer) hash_index++;
-					if (Kmer_hash[hash_index]) {
-						if (Kmer_depth[hash_index] != 65535)
-							__sync_fetch_and_add(&Kmer_depth[hash_index], 1);
+					if (thread_count == 1)
+					{
+						uint64_t hash_index;
+						if (Find_hash(kmer, &hash_index, Kmer_hash))
+							Kmer_depth[hash_index]++;
 					}
+					else {
+						//Thread modes
+						pushed = 0;
+						while (1)
+						{
+							if ((uint8_t) (Read_idx[thd_idx] - Write_idx[thd_idx]) != 1){
+								FIFO_buff_pool[(thd_idx << 8)+Write_idx[thd_idx]] = kmer;
+								Write_idx[thd_idx]++;
+								//printf("Feed %i R%i W%i\n",thd_idx, Read_idx[thd_idx], Write_idx[thd_idx]);
+								pushed = 1;
+							}
+							else {
+								if (thd_idx == thread_count-1) thd_idx = 0;
+								else thd_idx++;
+							}
+							if (pushed) break;
+						}
+					}
+					process_kmers++;
+					if ((process_kmers & 0xFFFFF) == 0) printf("Read %iM kmers\n",process_kmers>>20);
 				}
 			}
 			seq_char_index++;
 		}
 	}
+	//Join threads
+	thread_no_more_data = 1;
+	for (thd_idx = 0; thd_idx < thread_count; thd_idx++)
+		pthread_join(tid[thd_idx], NULL);
+	delete tid;
+	delete arg_arr;
+	delete FIFO_buff_pool;
+	delete Write_idx;
+	delete Read_idx;
+	
 	//Dump count file
 	printf("Pileup finish\nRead chain file %i entries\n",fread(Kmer_hash, sizeof(uint32_t), Hashsize, Hash_file));
 	uint32_t * Kmer_next_loc = (uint32_t *) Kmer_hash;
