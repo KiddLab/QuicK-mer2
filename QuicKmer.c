@@ -3,8 +3,9 @@
 #include "stdlib.h"
 #include "string.h"
 #include "pthread.h"
-#include <unistd.h>
+#include "unistd.h"
 #include "time.h"
+#include "semaphore.h"
 
 //#define Hash_size 0x100000000
 #define Hash_size 0x2000000
@@ -34,6 +35,7 @@ struct edit_dis_arg_struc {
 struct FIFO_arg_struc {
 	volatile uint64_t FIFO0[FIFO_size]; //FIFO
 	volatile uint64_t FIFO1[FIFO_size]; //FIFO
+	sem_t data_feed_sem;
 	volatile uint8_t Write_count;
 	volatile uint8_t Read_count;
 	uint8_t thread_id;
@@ -192,13 +194,16 @@ int main_hash(int argc, char ** argv)
 void * Kmer_count_TSK(void *argvs)
 {
 	struct FIFO_arg_struc *argv = (struct FIFO_arg_struc *) argvs;
-	clock_t wait_before, thd_begin_time, total_time;
-	thd_begin_time = clock();
-	total_time = 0;
-	uint64_t total_processed = 0;
-	uint8_t last_wait = 0;
+	//clock_t wait_before, thd_begin_time, total_time;
+	//thd_begin_time = clock();
+	//total_time = 0;
+	//uint64_t total_processed = 0;
+	//uint8_t last_wait = 0;
 	while(1) {
-		
+		//wait_before = clock();
+		sem_wait(&(argv -> data_feed_sem));
+		if (thread_no_more_data) break;
+		/*
 		if ((argv -> Read_count) == (argv -> Write_count)) {
 			if (last_wait == 0){
 				last_wait = 1;
@@ -210,7 +215,8 @@ void * Kmer_count_TSK(void *argvs)
 		if (last_wait) {
 			total_time += clock()-wait_before;
 			last_wait = 0;
-		}
+		}*/
+		//total_time += clock()-wait_before;
 		//Work on current batch
 		volatile uint64_t * Kmers;
 		if ((argv -> Read_count) & 1) Kmers = argv -> FIFO1;
@@ -224,7 +230,7 @@ void * Kmer_count_TSK(void *argvs)
 		}
 		(argv -> Read_count)++;
 	}
-	printf("T%i %f\n",argv -> thread_id, (float) total_time/(clock()-thd_begin_time));
+	//printf("T%i %f\n",argv -> thread_id, (float) total_time/(clock()-thd_begin_time));
 }
 
 int main_count(int argc, char ** argv)
@@ -272,6 +278,7 @@ int main_count(int argc, char ** argv)
 			Thread_arg[thd_idx].Write_count = 0;
 			Thread_arg[thd_idx].Read_count = 0;
 			Thread_arg[thd_idx].thread_id = thd_idx;
+			sem_init(&Thread_arg[thd_idx].data_feed_sem,0,0); //Initialize semaphore with first wait
 			pthread_create(&tid[thd_idx], NULL, Kmer_count_TSK, &Thread_arg[thd_idx]);
 		}
 	}
@@ -321,6 +328,7 @@ int main_count(int argc, char ** argv)
 						{
 							FIFO_write_idx = 0;
 							Thread_arg[thd_idx].Write_count++;
+							sem_post(&Thread_arg[thd_idx].data_feed_sem);
 							do {
 								thd_idx++;
 								if (thd_idx == thread_count) thd_idx = 0;
@@ -346,10 +354,15 @@ int main_count(int argc, char ** argv)
 			FIFO_write_idx++;
 		}
 		Thread_arg[thd_idx].Write_count++;
-		sleep(1); //Simple sleep to avoid race condition
+		sem_post(&Thread_arg[thd_idx].data_feed_sem);
+		//sleep(1); //Simple sleep to avoid race condition
 		thread_no_more_data = 1;
 		for (thd_idx = 0; thd_idx < thread_count; thd_idx++)
+		{
+			sem_post(&Thread_arg[thd_idx].data_feed_sem);
 			pthread_join(tid[thd_idx], NULL);
+			sem_destroy(&Thread_arg[thd_idx].data_feed_sem);
+		}
 		delete tid;
 		delete Thread_arg;
 	}
