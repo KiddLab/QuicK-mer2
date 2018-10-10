@@ -355,7 +355,7 @@ int main_count(int argc, char ** argv)
 		}
 		Thread_arg[thd_idx].Write_count++;
 		sem_post(&Thread_arg[thd_idx].data_feed_sem);
-		//sleep(1); //Simple sleep to avoid race condition
+		sleep(1);
 		thread_no_more_data = 1;
 		for (thd_idx = 0; thd_idx < thread_count; thd_idx++)
 		{
