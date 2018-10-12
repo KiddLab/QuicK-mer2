@@ -7,14 +7,12 @@
 #include "time.h"
 #include "semaphore.h"
 
-//#define Hash_size 0x100000000
-#define Hash_size 0x2000000
 #define buffer_size 1024*1024
 #define FIFO_size 4096
 
-const uint64_t Kmer_size = 30;
-const uint64_t Kmer_mask = ((uint64_t)1 << (Kmer_size * 2)) - 1;
-const uint8_t key = 42;
+uint64_t Hash_size = 0x2000000; //0x100000000
+uint64_t Kmer_size = 30;
+uint64_t Kmer_mask = ((uint64_t)1 << 60) - 1;
 
 //Global Variables
 uint64_t * Kmer_hash;
@@ -22,7 +20,7 @@ uint32_t * Kmer_next_index;
 uint8_t * Kmer_occr;
 uint8_t * Kmer_edit_depth;
 uint16_t * Kmer_depth;
-uint8_t edit_distance;
+uint8_t edit_distance = 2;
 uint8_t Edit_depth_thres = 100;
 uint8_t thread_no_more_data = 0; //Set this flag when input stream finish
 
@@ -41,19 +39,17 @@ struct FIFO_arg_struc {
 	uint8_t thread_id;
 };
 
+void Set_Kmer_Size(uint8_t Size){
+	Kmer_size = Size;
+	Kmer_mask = ((uint64_t)1 << (Kmer_size * 2)) - 1;
+}
+
 uint64_t Kmer_encode(char * kmer){
 	uint64_t encoded = 0;
 	uint64_t encoded_r = 0;
 	do {
 		if (!*kmer) break;
 		encoded <<= 2;
-		/*
-		switch (*kmer){
-				case 'A': break;
-				case 'T': encoded |= 1; break;
-				case 'G': encoded |= 2; break;
-				case 'C': encoded |= 3; break;
-		}*/
 		uint8_t Letter = (*kmer >> 1) & 3;
 		encoded |= Letter;
 		Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
@@ -68,7 +64,6 @@ uint64_t Kmer_encode(char * kmer){
 
 uint64_t DJBHash_encode(uint64_t kmer)
 {
-	
 	uint64_t hash = 5381;
 	uint8_t i = 0;
 	for(i = 0; i < 8; i++)
@@ -76,9 +71,6 @@ uint64_t DJBHash_encode(uint64_t kmer)
 		hash = ((hash << 5) + hash) + ((kmer & 0xFF));
 		kmer >>= 8;
 	}
-	
-	//uint64_t hash;
-	//siphash(&hash,(uint8_t *) &kmer, 8, &key);
 	return hash;
 }
 
@@ -98,9 +90,7 @@ char Find_hash(uint64_t encoded_kmer, uint64_t * hash_index, uint64_t * Hash_dic
 {
 	*hash_index = DJBHash_encode(encoded_kmer) & (Hash_size-1);
 	while (Hash_dict[*hash_index] && Hash_dict[*hash_index] != encoded_kmer)
-	{
 		(*hash_index)++;
-	}
 	return Hash_dict[*hash_index] == encoded_kmer;
 }
 
@@ -111,7 +101,6 @@ uint64_t Reverse_strand_encoded(uint64_t encoded_kmer)
 	for (index = 0; index < Kmer_size; index++){
 		encoded_reverse <<= 2;
 		encoded_reverse |= ((encoded_kmer & 3)-2) & 3;
-		
 		encoded_kmer >>= 2;
 	}
 	return encoded_reverse;
@@ -128,9 +117,8 @@ int main_hash(int argc, char ** argv)
 	fseek(kmer_list, 0, SEEK_SET);
 	if (!kmer_list) return 1;
 	uint32_t kmer_start, kmer_end;
-	char chrom[30];
-	char kmer[60];
-	char rs[60];
+	char chrom[64];
+	char kmer[33];
 	//Malloc
 	Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
 	Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
@@ -141,28 +129,30 @@ int main_hash(int argc, char ** argv)
 	}
 	uint64_t last_index = 0;
 	uint32_t worst_case = 0;
-	uint32_t first_index = 0;
+	uint64_t first_index = 0;
+	uint64_t Total_count = 0;
 	uint32_t hist[8192] = {0};
-	while (fscanf(kmer_list, "%s\t%u\t%u\t%s\t%s", chrom, &kmer_start, &kmer_end, rs, kmer) == 5)
+	while (fscanf(kmer_list, "%s\t%u\t%u\t%s", chrom, &kmer_start, &kmer_end, kmer) == 4)
 	{
+		if (!Total_count) Set_Kmer_Size(strlen(kmer));
 		uint64_t kmer_encoded = Kmer_encode(kmer);
-		uint32_t hash_index = DJBHash_encode(kmer_encoded);
-		//uint32_t hash_index = DJBHash(kmer_cstr, 30);
-		hash_index &= (Hash_size-1);
+		uint64_t hash_index = DJBHash_encode(kmer_encoded) & (Hash_size-1);
 		uint32_t worst = 0;
 		while (Kmer_hash[hash_index] != 0){
 			hash_index++;
 			worst++;
 		}
 		Kmer_hash[hash_index] = kmer_encoded;
-		Kmer_next_index[last_index] = hash_index;
-		if (!first_index) first_index = hash_index;
+		if (!Total_count) first_index = hash_index;
+		else Kmer_next_index[last_index] = hash_index;
 		last_index = hash_index;
 		/*if (worst > worst_case) {
 			worst_case = worst;
 			printf("Worst %i\n", worst);
 		}*/
+		if (worst > 8191) worst = 8191;
 		hist[worst]++;
+		Total_count++;
 	}
 	Kmer_next_index[last_index] = 0xFFFFFFFF;
 	uint32_t count = 0;
@@ -175,12 +165,16 @@ int main_hash(int argc, char ** argv)
 	rewind(Hash_file);
 	const char Version[5] = "QM11";
 	fwrite(Version, 1, 4, Hash_file);
+	fwrite(&Kmer_size, 1, 1, Hash_file);
+	fwrite(&edit_distance, 1, 1, Hash_file);
+	fwrite(&Edit_depth_thres, 1, 1, Hash_file);
+	fwrite(&Edit_depth_thres, 1, 1, Hash_file);
 	uint64_t Hashsize = Hash_size + 16384;
-	fwrite(&Hashsize, 4, 1, Hash_file);
-	fwrite(&first_index, 4, 1, Hash_file);
+	fwrite(&Hashsize, 8, 1, Hash_file);
+	fwrite(&first_index, 8, 1, Hash_file);
 	fwrite((void *) Kmer_hash, sizeof(uint64_t), Hash_size + 16384, Hash_file);
 	int count_kmer = 0;
-	for (uint32_t k = 0; k < Hash_size +16384; k++){
+	for (uint64_t k = 0; k < Hash_size +16384; k++){
 		if (Kmer_hash[k]) count_kmer++;
 	}
 	printf("Total %i kmers\n", count_kmer);
@@ -235,29 +229,50 @@ void * Kmer_count_TSK(void *argvs)
 
 int main_count(int argc, char ** argv)
 {
-	//Thread count
-	uint8_t thread_count = 1;
-	if (argc == 4) thread_count = atoi(argv[3]);
-	FILE * Hash_file = fopen(argv[0], "r");
-	FILE * fasta_input = fopen(argv[1], "r");
+	uint8_t thread_count = 0;
+	char getopt_return;
+	extern char *optarg;
+	while ((getopt_return = getopt(argc, argv, "ht:")) != -1)
+	{
+		uint16_t len;
+		switch (getopt_return)
+		{
+			case 'h':
+				puts("Help information");
+				return 1;
+			case 't':
+				thread_count = atoi(optarg);
+				printf("[Option] Set %i threads\n",thread_count);
+				break;
+			case '?':
+				puts("Option error, check help");
+				return 1;
+			default:
+				return 1;
+		}
+	}
+	FILE * Hash_file = fopen(argv[argc-3], "r");
+	FILE * fasta_input = fopen(argv[argc-2], "r");
 	if (!fasta_input) {
 		puts("Input open fail");
 	}
-	FILE * OutFile = fopen(argv[2], "w");
-	uint32_t Hashsize;
+	FILE * OutFile = fopen(argv[argc-1], "w");
 	fseek(Hash_file, 4, 0);
-	fread(&Hashsize, 1, 4, Hash_file);
-	uint32_t first_idx;
-	fread(&first_idx, 1, 4, Hash_file);
-	printf("Hash Size: %i\nFirst location: %i\n", Hashsize, first_idx);
-	Kmer_hash = (uint64_t *) malloc(Hashsize * sizeof(uint64_t));
+	fread(&Kmer_size, 1, 1, Hash_file);
+	Set_Kmer_Size(Kmer_size);
+	fseek(Hash_file, 8, 0);
+	fread(&Hash_size, 8, 1, Hash_file);
+	uint64_t first_idx;
+	fread(&first_idx, 8, 1, Hash_file);
+	printf("Hash Size: %i\nFirst location: %i\n", Hash_size, first_idx);
+	Kmer_hash = (uint64_t *) malloc(Hash_size * sizeof(uint64_t));
 	if (!Kmer_hash) {
 		puts("Memory allocation failed");
 		fclose(Hash_file);
 		return 1;
 	}
-	printf("Read %i hash\n",fread(Kmer_hash, sizeof(uint64_t), Hashsize, Hash_file));
-	Kmer_depth = (uint16_t *) calloc(Hashsize, sizeof(uint16_t));
+	printf("Read 0x%X hash\n",fread(Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file));
+	Kmer_depth = (uint16_t *) calloc(Hash_size, sizeof(uint16_t));
 	if (!Kmer_depth) {
 		puts("Memory allocation failed");
 		free(Kmer_hash);
@@ -268,11 +283,11 @@ int main_count(int argc, char ** argv)
 	//Thread pool initialization
 	uint8_t thd_idx;
 	pthread_t *tid;
-	FIFO_arg_struc *Thread_arg;
-	if (thread_count >1)
+	struct FIFO_arg_struc *Thread_arg;
+	if (thread_count)
 	{
-		tid = new pthread_t[thread_count];
-		Thread_arg = new FIFO_arg_struc[thread_count];
+		tid = malloc(thread_count * sizeof(pthread_t));
+		Thread_arg = malloc(thread_count * sizeof(struct FIFO_arg_struc));
 		for (thd_idx = 0; thd_idx < thread_count; thd_idx++)
 		{
 			Thread_arg[thd_idx].Write_count = 0;
@@ -312,13 +327,8 @@ int main_count(int argc, char ** argv)
 				if (cur_chars >= Kmer_size) {
 					uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
 					if (kmer > encoded_r) kmer = encoded_r;
-					if (thread_count == 1)
+					if (thread_count)
 					{
-						uint64_t hash_index;
-						if (Find_hash(kmer, &hash_index, Kmer_hash))
-							Kmer_depth[hash_index]++;
-					}
-					else {
 						//Thread modes
 						if (Thread_arg[thd_idx].Write_count & 1)
 							Thread_arg[thd_idx].FIFO1[FIFO_write_idx] = kmer;
@@ -336,6 +346,11 @@ int main_count(int argc, char ** argv)
 							while (Thread_arg[thd_idx].Write_count != Thread_arg[thd_idx].Read_count);
 						}
 					}
+					else {
+						uint64_t hash_index;
+						if (Find_hash(kmer, &hash_index, Kmer_hash))
+							Kmer_depth[hash_index]++;
+					}
 					process_kmers++;
 					if ((process_kmers & 0x3FFFFFFF) == 0) printf("Read %iG kmers\n",process_kmers >> 30);
 				}
@@ -344,7 +359,7 @@ int main_count(int argc, char ** argv)
 		}
 	}
 	//Join threads
-	if (thread_count >1)
+	if (thread_count)
 	{
 		while (FIFO_write_idx != FIFO_size)
 		{
@@ -363,12 +378,12 @@ int main_count(int argc, char ** argv)
 			pthread_join(tid[thd_idx], NULL);
 			sem_destroy(&Thread_arg[thd_idx].data_feed_sem);
 		}
-		delete tid;
-		delete Thread_arg;
+		free(tid);
+		free(Thread_arg);
 	}
 	
 	//Dump count file
-	printf("Pileup finish\nRead chain file %i entries\n",fread(Kmer_hash, sizeof(uint32_t), Hashsize, Hash_file));
+	printf("Pileup finish\nRead chain file %i entries\n",fread(Kmer_hash, sizeof(uint32_t), Hash_size, Hash_file));
 	uint32_t * Kmer_next_loc = (uint32_t *) Kmer_hash;
 	uint32_t buf_count = 0;
 	uint16_t buffer[buffer_size];
@@ -434,19 +449,7 @@ void * Kmer_filter_TSK(void *argvs)
 	printf("Thread %i finished\n", thread_ID);
 }
 
-int main_search(int argc, char ** argv)
-{
-	//Malloc
-	Kmer_hash = (uint64_t *) malloc((Hash_size + 16384) * sizeof(uint64_t));
-	//Kmer_next_index = (uint32_t *) malloc(sizeof(uint32_t) * (Hash_size + 16384));
-	Kmer_occr = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
-	Kmer_edit_depth = (uint8_t *) malloc(sizeof(uint8_t) * (Hash_size + 16384));
-	if (!Kmer_hash || !Kmer_edit_depth || !Kmer_occr)
-	{
-		puts("Memory allocation failed");
-		return 1;
-	}
-	FILE * fasta = fopen(argv[0], "r");
+void hash_from_fasta(FILE * fasta){
 	char fasta_buffer[200];
 	uint8_t charge_size = 0;
 	uint64_t encoded = 0;
@@ -505,7 +508,7 @@ int main_search(int argc, char ** argv)
 					else hist[65535]++;
 					Kmer_hash[hash_index] = kmer;
 				}
-				Kmer_occr[hash_index]++;
+				if (Kmer_occr[hash_index] < 255) Kmer_occr[hash_index]++;
 			}
 		}
 		processed++;
@@ -535,49 +538,25 @@ int main_search(int argc, char ** argv)
 		occr_idx++;
 	}
 	printf("Uniq count %u, total %u\n", unique_count, count);
-	//Filter
-	edit_distance = 2; //Default setting
-	uint8_t thread_count = 8;
-	uint64_t thread_seg_count = Hash_size / thread_count;
-	uint64_t Thread_start_idx = 0;
-	uint8_t thd_idx;
-	pthread_t *tid = new pthread_t[thread_count];
-	edit_dis_arg_struc *arg_arr = new edit_dis_arg_struc[thread_count];
-	for (thd_idx = 1; thd_idx < thread_count; thd_idx++)
-	{
-		arg_arr[thd_idx].start_idx = Thread_start_idx;
-		arg_arr[thd_idx].end_idx = Thread_start_idx + thread_seg_count;
-		arg_arr[thd_idx].thread_id = thd_idx;
-		Thread_start_idx += thread_seg_count;
-		pthread_create(&tid[thd_idx], NULL, Kmer_filter_TSK, &arg_arr[thd_idx]);
-	}
-	arg_arr[0].start_idx = Thread_start_idx;
-	arg_arr[0].end_idx = Hash_size + 16384;
-	arg_arr[0].thread_id = 0;
-	Kmer_filter_TSK(&arg_arr[0]); //Default thread
-	//Join threads
-	for (thd_idx = 1; thd_idx < thread_count; thd_idx++)
-	{
-		pthread_join(tid[thd_idx], NULL);
-	}
-	delete tid;
-	delete arg_arr;
-	//High frequency mers stats
-	occr_idx = 0;
-	count = 0;
-	while (occr_idx < Hash_size+16384)
-	{
-		if (Kmer_occr[occr_idx] == 1 && Kmer_edit_depth[occr_idx] < Edit_depth_thres) count++;
-		occr_idx++;
-	}
-	printf("%u kmers after filter\n", count);
+}
+
+uint64_t dump_kmer_list(char dump, char * kmerlist_fn, FILE * fasta){
 	//Dump K-mer in second pass
 	fseek(fasta, 0, SEEK_SET);
-	FILE * Kmer_list = fopen(argv[1], "w");
+	FILE * Kmer_list;
+	if (dump) Kmer_list = fopen(kmerlist_fn, "w");
+	char fasta_buffer[200];
+	uint8_t charge_size = 0;
+	uint64_t encoded = 0;
+	uint64_t encoded_r = 0;
 	char chrom_name[128];
 	char str_buf[256];
 	uint64_t chr_pos;
 	char Kmer_text[Kmer_size+1];
+	uint64_t first_index;
+	uint64_t last_index;
+	uint64_t hash_index;
+	uint64_t count = 0;
 	while (fgets(fasta_buffer, 200, fasta) && fasta_buffer[0])
 	{
 		char * char_idx = fasta_buffer;
@@ -614,24 +593,181 @@ int main_search(int argc, char ** argv)
 			if (charge_size < Kmer_size) charge_size++;
 			if (kmer && charge_size == Kmer_size)
 			{
-				uint64_t hash_index;
-				Find_hash(kmer, &hash_index, Kmer_hash);
-				if (Kmer_occr[hash_index] == 1 && Kmer_edit_depth[hash_index] < Edit_depth_thres)
+				if (Find_hash(kmer, &hash_index, Kmer_hash))
 				{
-					sprintf(str_buf, "%s\t%u\t%u\t%s\n", chrom_name, chr_pos-charge_size, chr_pos, Kmer_text);
-					fputs(str_buf, Kmer_list);
+					if (!count) first_index = hash_index;
+					else Kmer_next_index[last_index] = hash_index;
+					last_index = hash_index;
+					if (dump) {
+						sprintf(str_buf, "%s\t%u\t%u\t%s\n", chrom_name, chr_pos-charge_size, chr_pos, Kmer_text);
+						fputs(str_buf, Kmer_list);
+					}
+					count++;
 				}
 			}
 		}
 	}
-	fclose(Kmer_list);
-	puts("Kmer search finished!");
+	Kmer_next_index[last_index] = 0xFFFFFFFF;
+	printf("Total output %i k-mers\n", count);
+	if (dump) fclose(Kmer_list);
+	return first_index;
+}
+
+int main_search(int argc, char ** argv)
+{
+	uint8_t thread_count = 1;
+	char getopt_return;
+	char * kmerlist_fn;
+	extern char *optarg;
+	char dump_kmer = 0;
+	while ((getopt_return = getopt(argc, argv, "hk:t:s:e:d:f:")) != -1)
+	{
+		uint16_t len;
+		switch (getopt_return)
+		{
+			case 'h':
+				puts("Help information");
+				return 1;
+			case 'k':
+				Set_Kmer_Size(atoi(optarg));
+				printf("[Option] Set %i-mer\n",Kmer_size);
+				break;
+			case 't':
+				thread_count = atoi(optarg);
+				printf("[Option] Set %i threads\n",thread_count);
+				break;
+			case 's':
+				len = strlen(optarg);
+				switch (optarg[len-1]){
+					case 'G':
+						Hash_size = (uint64_t) atoi(optarg) << 30;
+						break;
+					case 'M':
+						Hash_size = atoi(optarg) << 20;
+						break;
+					case 'K':
+						Hash_size = atoi(optarg) << 10;
+						break;
+					default:
+						Hash_size = atoi(optarg);
+				}
+				printf("[Option] Set hash space 0x%lX\n",Hash_size);
+				break;
+			case 'e':
+				edit_distance = atoi(optarg);
+				printf("[Option] Edit distance %i\n",edit_distance);
+				break;
+			case 'd':
+				Edit_depth_thres = atoi(optarg);
+				printf("[Option] Max repeat count with edit distance %i\n",Edit_depth_thres);
+				break;
+			case 'f':
+				kmerlist_fn = optarg;
+				dump_kmer = 1;
+				printf("[Option] Final k-mer list enabled: %s\n",kmerlist_fn);
+				break;
+			case '?':
+				puts("Option error, check help");
+				return 1;
+			default:
+				return 1;
+		}
+	}
 	
+	//Malloc
+	Kmer_hash = (uint64_t *) calloc(Hash_size + 16384, sizeof(uint64_t));
+	Kmer_occr = (uint8_t *) calloc(Hash_size + 16384, sizeof(uint8_t));
+	Kmer_edit_depth = (uint8_t *) calloc(Hash_size + 16384, sizeof(uint8_t));
+	if (!Kmer_hash || !Kmer_edit_depth || !Kmer_occr)
+	{
+		puts("Memory allocation failed");
+		return 1;
+	}
+	FILE * fasta = fopen(argv[argc-2], "r");
+	hash_from_fasta(fasta);
+
+	//Filter
+	if (edit_distance)
+	{
+		uint64_t thread_seg_count = Hash_size / thread_count;
+		uint64_t Thread_start_idx = 0;
+		uint8_t thd_idx;
+		pthread_t *tid = malloc(thread_count * sizeof(pthread_t));
+		struct edit_dis_arg_struc *arg_arr = malloc(thread_count * sizeof(struct edit_dis_arg_struc));
+		for (thd_idx = 1; thd_idx < thread_count; thd_idx++)
+		{
+			arg_arr[thd_idx].start_idx = Thread_start_idx;
+			arg_arr[thd_idx].end_idx = Thread_start_idx + thread_seg_count;
+			arg_arr[thd_idx].thread_id = thd_idx;
+			Thread_start_idx += thread_seg_count;
+			pthread_create(&tid[thd_idx], NULL, Kmer_filter_TSK, &arg_arr[thd_idx]);
+		}
+		arg_arr[0].start_idx = Thread_start_idx;
+		arg_arr[0].end_idx = Hash_size + 16384;
+		arg_arr[0].thread_id = 0;
+		Kmer_filter_TSK(&arg_arr[0]); //Default thread
+		//Join threads
+		for (thd_idx = 1; thd_idx < thread_count; thd_idx++)
+			pthread_join(tid[thd_idx], NULL);
+		free(tid);
+		free(arg_arr);
+	}
+	
+	//High frequency mers stats and removal
+	uint64_t occr_idx;
+	uint64_t count = 0;
+	for (occr_idx = 0; occr_idx < Hash_size+16384; occr_idx++)
+	{
+		if (Kmer_occr[occr_idx] == 0) continue;
+		if (Kmer_occr[occr_idx] > 1 || Kmer_edit_depth[occr_idx] >= Edit_depth_thres)
+		{
+			//Kmers to get rid off
+			Kmer_hash[occr_idx] = 0;
+			count++;
+		}
+		else {
+			uint64_t cur_kmer = Kmer_hash[occr_idx];
+			Kmer_hash[occr_idx] = 0;
+			uint64_t new_idx = DJBHash_encode(cur_kmer) & (Hash_size-1);
+			while (Kmer_hash[new_idx] && Kmer_hash[new_idx] != cur_kmer) new_idx++;
+			Kmer_hash[new_idx] = cur_kmer;
+		}
+	}
+	free(Kmer_edit_depth);
+	free(Kmer_occr);
+	printf("%u kmers deleted\n", count);
+	//Dump hash table into text format
+	Kmer_next_index = (uint32_t *) calloc(Hash_size + 16384,sizeof(uint32_t));
+	puts("Generate chaining table");
+	uint64_t first_index = dump_kmer_list(dump_kmer, kmerlist_fn, fasta);
+	//Save QM index binary
+	FILE * Hash_file = fopen(argv[argc-1], "w");
+	if (!Hash_file) {
+		puts("File creation failed");
+		return 1;
+	}
+	rewind(Hash_file);
+	const char Version[5] = "QM11";
+	fwrite(Version, 1, 4, Hash_file);
+	fwrite(&Kmer_size, 1, 1, Hash_file);
+	fwrite(&edit_distance, 1, 1, Hash_file);
+	fwrite(&Edit_depth_thres, 1, 1, Hash_file);
+	fwrite(&Edit_depth_thres, 1, 1, Hash_file);
+	uint64_t Hashsize = Hash_size + 16384;
+	fwrite(&Hashsize, 8, 1, Hash_file);
+	fwrite(&first_index, 8, 1, Hash_file);
+	fwrite((void *) Kmer_hash, sizeof(uint64_t), Hash_size + 16384, Hash_file);
+	free(Kmer_hash);
+	fwrite((void *) Kmer_next_index, sizeof(uint32_t), Hash_size + 16384, Hash_file);
+	free(Kmer_next_index);
+	fclose(Hash_file);
+	puts("Kmer search finished!");
+	return 0;
 }
 
 void printversion() {
 	puts("QuicK-mer 2.0");
-	puts("Operation modes: \n\tindex\tIndex a kmer list\n\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome\n");
+	puts("Operation modes: \n\tindex\tIndex a bed format kmer list\n\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome\n");
 }
 
 int main(int argc, char** argv)
@@ -640,9 +776,9 @@ int main(int argc, char** argv)
 		if (strcmp(argv[1], "index") == 0)
 			return main_hash(argc-2, argv+2);
 		else if (strcmp(argv[1], "count") == 0)
-			return main_count(argc-2, argv+2);
+			return main_count(argc-1, argv+1);
 		else if (strcmp(argv[1], "search") == 0)
-			return main_search(argc-2, argv+2);
+			return main_search(argc-1, argv+1);
 		else {
 			printversion();
 			return 1;
