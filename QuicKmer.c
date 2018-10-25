@@ -161,7 +161,7 @@ int main_hash(int argc, char ** argv)
 		hist[worst]++;
 		Total_count++;
 	}
-	Kmer_next_index[last_index] = 0xFFFFFFFF;
+	Kmer_next_index[last_index] = first_index;
 	uint32_t count = 0;
 	float average = 0;
 	for (uint32_t k = 0; k < 8192; k++){
@@ -394,16 +394,17 @@ int main_count(int argc, char ** argv)
 	uint32_t * Kmer_next_loc = (uint32_t *) Kmer_hash;
 	uint32_t buf_count = 0;
 	uint16_t buffer[buffer_size];
-	while(first_idx != 0xFFFFFFFF)
-	{
-		buffer[buf_count] = Kmer_depth[first_idx];
-		first_idx = Kmer_next_loc[first_idx];
+	uint32_t chaining_idx = first_idx;
+	do {
+		buffer[buf_count] = Kmer_depth[chaining_idx];
+		chaining_idx = Kmer_next_loc[chaining_idx];
 		buf_count++;
 		if (buf_count == buffer_size) {
 			fwrite(buffer, sizeof(uint16_t), buffer_size, OutFile);
 			buf_count = 0;
 		}
 	}
+	while(first_idx != chaining_idx);
 	fwrite(buffer, sizeof(uint16_t), buf_count, OutFile);
 	free(Kmer_hash);
 	free(Kmer_depth);
@@ -550,11 +551,9 @@ void hash_from_fasta(FILE * fasta){
 	printf("Uniq count %lu, total %lu\n", unique_count, count);
 }
 
-uint64_t dump_kmer_list(char dump, char * kmerlist_fn, FILE * fasta){
+uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, uint16_t wsize){
 	//Dump K-mer in second pass
 	fseek(fasta, 0, SEEK_SET);
-	FILE * Kmer_list;
-	if (dump) Kmer_list = fopen(kmerlist_fn, "w");
 	char fasta_buffer[200];
 	uint8_t charge_size = 0;
 	uint64_t encoded = 0;
@@ -562,7 +561,8 @@ uint64_t dump_kmer_list(char dump, char * kmerlist_fn, FILE * fasta){
 	char chrom_name[128];
 	char str_buf[256];
 	uint64_t chr_pos;
-	char Kmer_text[Kmer_size+1];
+	uint64_t win_start;
+	uint32_t wstart;
 	uint64_t first_index;
 	uint64_t last_index;
 	uint64_t hash_index;
@@ -573,17 +573,17 @@ uint64_t dump_kmer_list(char dump, char * kmerlist_fn, FILE * fasta){
 		if (*char_idx == '>')
 		{
 			charge_size = 0;
+			wstart = count;
 			encoded = 0;
 			encoded_r = 0;
 			chr_pos = 0;
+			win_start = 0;
 			strncpy(chrom_name, char_idx+1, strlen(fasta_buffer)-2);
 			continue;
 		}
 		while (*char_idx && *char_idx != '\n')
 		{
 			chr_pos++;
-			memmove(Kmer_text,Kmer_text+1,Kmer_size-1);
-			Kmer_text[Kmer_size-1] = *char_idx;
 			if (*char_idx == 'N'){
 				charge_size = 0;
 				encoded = 0;
@@ -608,18 +608,23 @@ uint64_t dump_kmer_list(char dump, char * kmerlist_fn, FILE * fasta){
 					if (!count) first_index = hash_index;
 					else Kmer_next_index[last_index] = hash_index;
 					last_index = hash_index;
-					if (dump) {
-						sprintf(str_buf, "%s\t%u\t%u\t%s\n", chrom_name, chr_pos-charge_size, chr_pos, Kmer_text);
-						fputs(str_buf, Kmer_list);
-					}
+					//if (Kmer_list != NULL) {
+					//	sprintf(str_buf, "%s\t%u\t%u\t%s\n", chrom_name, chr_pos-charge_size, chr_pos, Kmer_text);
+					//	fputs(str_buf, Kmer_list);
+					//}
 					count++;
+					if (window_file != NULL && count % wsize == 0){
+						sprintf(str_buf, "%s\t%u\t%u\t%u\t%u\n", chrom_name, win_start, chr_pos, wstart, count);
+						fputs(str_buf, window_file);
+						win_start = chr_pos;
+						wstart = count;
+					}
 				}
 			}
 		}
 	}
-	Kmer_next_index[last_index] = 0xFFFFFFFF;
+	Kmer_next_index[last_index] = first_index;
 	printf("Total output %i k-mers\n", count);
-	if (dump) fclose(Kmer_list);
 	return first_index;
 }
 
@@ -627,10 +632,11 @@ int main_search(int argc, char ** argv)
 {
 	uint8_t thread_count = 1;
 	char getopt_return;
-	char * kmerlist_fn;
+	FILE * kmerdump;
 	extern char *optarg;
 	char dump_kmer = 0;
-	while ((getopt_return = getopt(argc, argv, "hk:t:s:e:d:f:")) != -1)
+	FILE * window_file;
+	while ((getopt_return = getopt(argc, argv, "hk:t:s:e:d:f:w:")) != -1)
 	{
 		uint16_t len;
 		switch (getopt_return)
@@ -664,6 +670,10 @@ int main_search(int argc, char ** argv)
 				Hash_size = (uint64_t) 1 << (uint8_t) ceil(log2(Hash_size));
 				printf("[Option] Set hash space 0x%lX\n",Hash_size);
 				break;
+			case 'w':
+				window_file = fopen(optarg, "w");
+				printf("[Option] Write window file %s\n",optarg);
+				break;
 			case 'e':
 				edit_distance = atoi(optarg);
 				printf("[Option] Edit distance %i\n",edit_distance);
@@ -673,9 +683,8 @@ int main_search(int argc, char ** argv)
 				printf("[Option] Max repeat count with edit distance %i\n",Edit_depth_thres);
 				break;
 			case 'f':
-				kmerlist_fn = optarg;
-				dump_kmer = 1;
-				printf("[Option] Final k-mer list enabled: %s\n",kmerlist_fn);
+				kmerdump = fopen(optarg, "w");
+				printf("[Option] Final k-mer list enabled: %s\n",optarg);
 				break;
 			case '?':
 				puts("Option error, check help");
@@ -782,7 +791,7 @@ int main_search(int argc, char ** argv)
 	//Dump hash table into text format
 	Kmer_next_index = (uint32_t *) calloc(Hash_size,sizeof(uint32_t));
 	puts("Generate chaining table");
-	uint64_t first_index = dump_kmer_list(dump_kmer, kmerlist_fn, fasta);
+	uint64_t first_index = dump_kmer_list(kmerdump, fasta, window_file, 1000);
 	puts("Writing index file");
 	//Save QM index binary
 	FILE * Hash_file = fopen(argv[argc-1], "w");
