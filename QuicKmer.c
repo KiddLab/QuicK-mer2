@@ -551,26 +551,30 @@ void hash_from_fasta(FILE * fasta){
 	printf("Uniq count %lu, total %lu\n", unique_count, count);
 }
 
-uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, uint16_t wsize){
+uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, FILE * ctrl_file,
+						FILE* GC_binout, uint16_t gc_win, uint16_t wsize){
 	//Dump K-mer in second pass
 	fseek(fasta, 0, SEEK_SET);
-	char fasta_buffer[200];
-	uint8_t charge_size = 0;
-	uint64_t encoded = 0;
-	uint64_t encoded_r = 0;
-	char chrom_name[128];
-	char str_buf[256];
-	uint64_t chr_pos;
+	char next_chr_name[200];
+	char * chrom_name = next_chr_name+1;
+	char str_buf[200];
+	char ctrl_chr[200];
+	uint32_t chr_pos;
 	uint64_t win_start;
 	uint32_t wstart;
-	uint64_t first_index;
-	uint64_t last_index;
-	uint64_t hash_index;
 	uint64_t count = 0;
-	while (fgets(fasta_buffer, 200, fasta) && fasta_buffer[0])
+	uint64_t first_index, last_index;
+	char * fa_buf;
+	uint16_t * GC_control_buf;
+	uint32_t GC_control_buf_idx = 0;
+	if (GC_binout != NULL) GC_control_buf = malloc(buffer_size*sizeof(uint16_t));
+	fa_buf = malloc(256*1024*1024);
+	while (fgets(next_chr_name, 200, fasta))
 	{
-		char * char_idx = fasta_buffer;
-		if (*char_idx == '>')
+		uint8_t charge_size = 0;
+		uint64_t encoded = 0;
+		uint64_t encoded_r = 0;
+		if (next_chr_name[0] == '>')
 		{
 			charge_size = 0;
 			wstart = count;
@@ -578,50 +582,119 @@ uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, uint
 			encoded_r = 0;
 			chr_pos = 0;
 			win_start = 0;
-			strncpy(chrom_name, char_idx+1, strlen(fasta_buffer)-2);
-			continue;
-		}
-		while (*char_idx && *char_idx != '\n')
-		{
-			chr_pos++;
-			if (*char_idx == 'N'){
-				charge_size = 0;
-				encoded = 0;
-				encoded_r = 0;
-				char_idx++;
-				continue;
-			}
-			uint8_t Letter = (*char_idx >> 1) & 3;
-			char_idx++;
-			encoded <<= 2;
-			encoded |= Letter;
-			Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
-			encoded_r |= (uint64_t)Letter << 60;
-			encoded_r >>= 2;
-			uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
-			if (kmer > encoded_r) kmer = encoded_r;
-			if (charge_size < Kmer_size) charge_size++;
-			if (kmer && charge_size == Kmer_size)
-			{
-				if (Find_hash(kmer, &hash_index, Kmer_hash))
-				{
-					if (!count) first_index = hash_index;
-					else Kmer_next_index[last_index] = hash_index;
-					last_index = hash_index;
-					//if (Kmer_list != NULL) {
-					//	sprintf(str_buf, "%s\t%u\t%u\t%s\n", chrom_name, chr_pos-charge_size, chr_pos, Kmer_text);
-					//	fputs(str_buf, Kmer_list);
-					//}
-					count++;
-					if (window_file != NULL && count % wsize == 0){
-						sprintf(str_buf, "%s\t%u\t%u\t%u\t%u\n", chrom_name, win_start, chr_pos, wstart, count);
-						fputs(str_buf, window_file);
-						win_start = chr_pos;
-						wstart = count;
-					}
+			while (!feof(fasta)) {
+				uint64_t loc = ftell(fasta);
+				fgets(&fa_buf[chr_pos], 200, fasta);
+				uint8_t read_count = ftell(fasta)-loc;
+				if (fa_buf[chr_pos] == '>') {
+					fseek(fasta, -read_count, SEEK_CUR);
+					fa_buf[chr_pos] = 0;
+					break;
+				}
+				else {
+					chr_pos += read_count - 1;
+					if (fa_buf[chr_pos] != '\n') chr_pos++;
 				}
 			}
 		}
+		uint8_t ctrl_checked_same_chr = 0;
+		uint8_t ctrl_this_chr_absent = 0; 
+		uint16_t window_bp = 0;
+		uint16_t GC_bp = 0;
+		uint16_t N_bp = 0;
+		uint32_t tl_idx = 0; //Trailing or leading index
+		uint32_t chr_bp_count = chr_pos;
+		uint32_t ctrl_w_s, ctrl_w_e;
+		chrom_name[strlen(chrom_name)-1] = 0;
+		printf("%s %i\n", chrom_name, chr_bp_count);
+		//Charge kmer gc window
+		for (chr_pos = 0; chr_pos < (gc_win - Kmer_size)/2; chr_pos++) {
+			if (fa_buf[chr_pos] & 2) GC_bp++;
+			else if (fa_buf[chr_pos] == 'N') N_bp++;
+			window_bp++;
+		}
+		chr_pos = 0;
+		char last_ctrl = 0;
+		while (fa_buf[chr_pos])
+		{
+			if (chr_pos + (gc_win - Kmer_size) /2 < chr_bp_count){
+				tl_idx = chr_pos + (gc_win - Kmer_size) /2;
+				if (fa_buf[tl_idx] & 2) GC_bp++; //Is G or C
+				else if (fa_buf[tl_idx] == 'N') N_bp++;
+				window_bp++;
+			}
+			if (chr_pos >= (gc_win + Kmer_size)/2) {
+				tl_idx = chr_pos - (gc_win + Kmer_size)/2;
+				if (fa_buf[tl_idx] & 2) GC_bp--;
+				else if (fa_buf[tl_idx] == 'N') N_bp--;
+				window_bp--;
+			}
+			uint8_t Letter = (fa_buf[chr_pos] >> 1) & 3;
+			if (fa_buf[chr_pos] == 'N'){
+				charge_size = 0;
+				encoded = 0;
+				encoded_r = 0;
+			}
+			else {
+				encoded <<= 2;
+				encoded |= Letter;
+				Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
+				encoded_r |= (uint64_t)Letter << 60;
+				encoded_r >>= 2;
+				uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
+				if (kmer > encoded_r) kmer = encoded_r;
+				if (charge_size < Kmer_size) charge_size++;
+				if (kmer && charge_size == Kmer_size)
+				{
+					uint64_t hash_index;
+					if (Find_hash(kmer, &hash_index, Kmer_hash))
+					{
+						if (GC_binout != NULL) {
+							//GC calculation
+							uint16_t GC_per = (N_bp + GC_bp * 2) * 200/ window_bp; //Use 401 bins
+							//Control Window generation
+							if (!ctrl_checked_same_chr) {
+								fseek(ctrl_file, 0, SEEK_SET); //In case the bed file is not in the same chr sort order
+								while (fscanf(ctrl_file, "%s\t%d\t%d", ctrl_chr, &ctrl_w_s, &ctrl_w_e) && 
+									(ctrl_this_chr_absent = strcmp(ctrl_chr, chrom_name)));
+								ctrl_checked_same_chr = 1;
+							}
+							else while (chr_pos > ctrl_w_e && !ctrl_this_chr_absent &&
+								fscanf(ctrl_file, "%s\t%d\t%d", ctrl_chr, &ctrl_w_s, &ctrl_w_e))
+								if (strcmp(ctrl_chr, chrom_name)) {
+									ctrl_this_chr_absent = 1;
+									break;
+								}
+							if (ctrl_checked_same_chr && !ctrl_this_chr_absent && chr_pos + 1 - Kmer_size > ctrl_w_s)
+								GC_per |= 0x8000;
+							GC_control_buf[GC_control_buf_idx] = GC_per;
+							GC_control_buf_idx++;
+							if ((GC_control_buf_idx & (buffer_size-1)) == 0) {
+								GC_control_buf_idx = 0;
+								fwrite(GC_control_buf, 2, buffer_size, GC_binout);
+							}
+						}
+						//Chaining
+						if (!count) first_index = hash_index;
+						else Kmer_next_index[last_index] = hash_index;
+						last_index = hash_index;
+						count++;
+						//Window generation
+						if (window_file != NULL && count % wsize == 0){
+							sprintf(str_buf, "%s\t%u\t%u\t%u\t%u\n", chrom_name, win_start, chr_pos, wstart, count);
+							fputs(str_buf, window_file);
+							win_start = chr_pos;
+							wstart = count;
+						}
+					}
+				}
+			}
+			chr_pos++;
+		}
+	}
+	if (GC_binout != NULL) {
+		fwrite(GC_control_buf, 2, GC_control_buf_idx, GC_binout);
+		fclose(GC_binout);
 	}
 	Kmer_next_index[last_index] = first_index;
 	printf("Total output %i k-mers\n", count);
@@ -636,7 +709,9 @@ int main_search(int argc, char ** argv)
 	extern char *optarg;
 	char dump_kmer = 0;
 	FILE * window_file;
-	while ((getopt_return = getopt(argc, argv, "hk:t:s:e:d:f:w:")) != -1)
+	FILE * GC_file;
+	FILE * Control_bed;
+	while ((getopt_return = getopt(argc, argv, "hk:t:s:e:d:f:w:c:")) != -1)
 	{
 		uint16_t len;
 		switch (getopt_return)
@@ -669,6 +744,10 @@ int main_search(int argc, char ** argv)
 				}
 				Hash_size = (uint64_t) 1 << (uint8_t) ceil(log2(Hash_size));
 				printf("[Option] Set hash space 0x%lX\n",Hash_size);
+				break;
+			case 'c':
+				Control_bed = fopen(optarg, "r");
+				printf("[Option] Control bedfile %s\n",optarg);
 				break;
 			case 'w':
 				window_file = fopen(optarg, "w");
@@ -703,7 +782,15 @@ int main_search(int argc, char ** argv)
 		puts("Memory allocation failed");
 		return 1;
 	}
-	FILE * fasta = fopen(argv[argc-2], "r");
+	char path[65535];
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".qm");
+	FILE * Hash_file = fopen(path, "w");
+	if (!Hash_file) {
+		puts("File creation failed");
+		return 1;
+	}
+	FILE * fasta = fopen(argv[argc-1], "r");
 	hash_from_fasta(fasta);
 
 	//Filter
@@ -791,14 +878,15 @@ int main_search(int argc, char ** argv)
 	//Dump hash table into text format
 	Kmer_next_index = (uint32_t *) calloc(Hash_size,sizeof(uint32_t));
 	puts("Generate chaining table");
-	uint64_t first_index = dump_kmer_list(kmerdump, fasta, window_file, 1000);
+	strcpy(path, argv[argc-1]);
+	if (Control_bed != NULL) {
+		strcat(path, ".qgc");
+		GC_file = fopen(path, "w");
+	}
+	uint64_t first_index = dump_kmer_list(kmerdump, fasta, window_file, Control_bed, GC_file, 400, 1000);
 	puts("Writing index file");
 	//Save QM index binary
-	FILE * Hash_file = fopen(argv[argc-1], "w");
-	if (!Hash_file) {
-		puts("File creation failed");
-		return 1;
-	}
+	
 	rewind(Hash_file);
 	const char Version[5] = "QM11";
 	fwrite(Version, 1, 4, Hash_file);
