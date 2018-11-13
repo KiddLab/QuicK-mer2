@@ -1,12 +1,12 @@
+#include "math.h"
+#include "pthread.h"
+#include "semaphore.h"
 #include "stdint.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
-#include "pthread.h"
-#include "unistd.h"
 #include "time.h"
-#include "semaphore.h"
-#include "math.h"
+#include "unistd.h"
 
 #define buffer_size 1024*1024
 #define FIFO_size 4096
@@ -234,6 +234,12 @@ void * Kmer_count_TSK(void *argvs)
 	//printf("T%i %f\n",argv -> thread_id, (float) total_time/(clock()-thd_begin_time));
 }
 
+void help_count(){
+	puts("\nquicKmer count [Options] ref.fa sample.fast[a/q] Out_prefix\n\nOptions:");
+	puts("-h\t\tShow this help information");
+	puts("-t [num]\tNumber of threads");
+}
+
 int main_count(int argc, char ** argv)
 {
 	uint8_t thread_count = 0;
@@ -245,7 +251,7 @@ int main_count(int argc, char ** argv)
 		switch (getopt_return)
 		{
 			case 'h':
-				puts("Help information");
+				help_count();
 				return 1;
 			case 't':
 				thread_count = atoi(optarg);
@@ -253,17 +259,23 @@ int main_count(int argc, char ** argv)
 				break;
 			case '?':
 				puts("Option error, check help");
+				help_count();
 				return 1;
 			default:
 				return 1;
 		}
 	}
-	FILE * Hash_file = fopen(argv[argc-3], "r");
+	char path[65536];
+	strcpy(path, argv[argc-3]);
+	strcat(path, ".qm");
+	FILE * Hash_file = fopen(path, "r");
 	FILE * fasta_input = fopen(argv[argc-2], "r");
 	if (!fasta_input) {
 		puts("Input open fail");
 	}
-	FILE * OutFile = fopen(argv[argc-1], "w");
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".bin");
+	FILE * OutFile = fopen(path, "w");
 	fseek(Hash_file, 4, 0);
 	fread(&Kmer_size, 1, 1, Hash_file);
 	Set_Kmer_Size(Kmer_size);
@@ -391,13 +403,30 @@ int main_count(int argc, char ** argv)
 	
 	//Dump count file
 	printf("Pileup finish\nRead chain file %i entries\n",fread(Kmer_hash, sizeof(uint32_t), Hash_size, Hash_file));
+	strcpy(path, argv[argc-3]);
+	strcat(path, ".qgc");
+	FILE * GC_control = fopen(path, "r");
+	if (GC_control == NULL)
+		printf("GC control file %s absent. Continue without GC correction!", path);
+	
 	uint32_t * Kmer_next_loc = (uint32_t *) Kmer_hash;
 	uint32_t buf_count = 0;
 	uint16_t buffer[buffer_size];
+	uint16_t gc_control[buffer_size];
 	uint32_t chaining_idx = first_idx;
+	double Control_curve[401] = {0};
+	uint32_t Control_count[401] = {0};
 	do {
 		buffer[buf_count] = Kmer_depth[chaining_idx];
 		chaining_idx = Kmer_next_loc[chaining_idx];
+		if (GC_control != NULL) {
+			if ((buf_count & (buffer_size -1)) == 0)
+				fread(gc_control, sizeof(uint16_t), buffer_size, GC_control);
+			if (gc_control[buf_count] & 0x8000) {
+				Control_curve[gc_control[buf_count] & 0x1FF] += buffer[buf_count];
+				Control_count[gc_control[buf_count] & 0x1FF]++;
+			}
+		}
 		buf_count++;
 		if (buf_count == buffer_size) {
 			fwrite(buffer, sizeof(uint16_t), buffer_size, OutFile);
@@ -406,9 +435,157 @@ int main_count(int argc, char ** argv)
 	}
 	while(first_idx != chaining_idx);
 	fwrite(buffer, sizeof(uint16_t), buf_count, OutFile);
+	fclose(OutFile);
 	free(Kmer_hash);
 	free(Kmer_depth);
-	fclose(OutFile);
+	//Save GC curve
+	if (GC_control != NULL) {
+		strcpy(path, argv[argc-1]);
+		strcat(path, ".txt");
+		FILE * GC_curve = fopen(path, "w");
+		char str_buf[255];
+		double total_depth = 0;
+		uint64_t total_count = 0;
+		for (uint16_t i = 0; i < 401; i++){
+			total_count += Control_count[i];
+			total_depth += Control_curve[i];
+			if (Control_count[i]) Control_curve[i] /= Control_count[i];
+			sprintf(str_buf, "%.2f\t%f\t%i\n", i/4.0, Control_curve[i], Control_count[i]);
+			fputs(str_buf, GC_curve);
+		}
+		total_depth /= total_count;
+		printf("Mean sequencing depth: %.2f\n",total_depth);
+		fclose(GC_curve);
+	}
+	puts("Exit QuicK-mer count");
+	return 0;
+}
+
+void help_est(){
+	puts("quicKmer est ref.fa sample_prefix output.bed");
+	puts("\tref.fa\t\tPrefix to genome reference. Program requires .qgc and .bed definition");
+	puts("\tsample_prefix\tPrefix to sample.bin");
+	puts("\toutput.bed\tOutput bedfile for copy number");
+	puts("\nNo options available\n");
+}
+
+int main_estimate(int argc, char ** argv){
+	FILE * GC_ctrl;
+	FILE * Depth_Bin;
+	FILE * Window_file;
+	FILE * OutputFile;
+	char path[65536];
+	strcpy(path, argv[argc-3]);
+	strcat(path, ".qgc");
+	GC_ctrl = fopen(path, "r");
+	if (!GC_ctrl) {
+		puts("GC control file missing.");
+		help_est();
+		return 1;
+	}
+	strcpy(path, argv[argc-3]);
+	strcat(path, ".bed");
+	Window_file = fopen(path,"r");
+	if (!Window_file) {
+		puts("Window segmentation file missing.");
+		help_est();
+		return 1;
+	}
+	strcpy(path, argv[argc-2]);
+	strcat(path, ".bin");
+	Depth_Bin = fopen(path,"r");
+	if (!Depth_Bin) {
+		puts("Sample file missing (Use prefix).");
+		help_est();
+		return 1;
+	}
+	strcpy(path, argv[argc-2]);
+	strcat(path, ".txt");
+	FILE * GC_curve = fopen(path,"r");
+	char str_buf[255];
+	double total_depth = 0; //Later store average depth
+	uint64_t total_count = 0;
+	uint16_t gc_control[buffer_size];
+	uint16_t depth[buffer_size];
+	if (!GC_curve){
+		puts("Depth control not found. Regenerating...");
+		FILE * GC_curve = fopen(path, "w");
+		uint32_t read_size;
+		double Control_curve[401] = {0};
+		uint32_t Control_count[401] = {0};
+		while (read_size = fread(gc_control, 1, buffer_size, GC_ctrl)) {
+			fread(depth, 1, read_size, Depth_Bin);
+			read_size >>= 1;
+			while (read_size){
+				if (gc_control[read_size] & 0x8000){
+					Control_curve[gc_control[read_size] & 0x1FF] += depth[read_size];
+					Control_count[gc_control[read_size] & 0x1FF]++;
+				}
+				read_size -= 1;
+			}
+		}
+		//Generate GC curve
+		for (uint16_t i = 0; i < 401; i++){
+			total_count += Control_count[i];
+			total_depth += Control_curve[i];
+			if (Control_count[i]) Control_curve[i] /= Control_count[i];
+			sprintf(str_buf, "%.2f\t%f\t%i\n", i/4.0, Control_curve[i], Control_count[i]);
+			fputs(str_buf, GC_curve);
+		}
+	}
+	else {
+		float percent, depth;
+		uint32_t cur_count;
+		while (fscanf(GC_curve, "%f\t%f\t%i\t%s\n", &percent, &depth, &cur_count, str_buf) == 4) {
+			total_depth += depth * cur_count;
+			total_count += cur_count;
+		}
+	}
+	total_depth /= total_count;
+	printf("Mean sequencing depth: %.2f\n",total_depth);
+	fclose(GC_curve);
+	strcpy(path, "smooth_GC_mrsfast.py ");
+	strcat(path, argv[argc-2]);
+	strcat(path, ".txt");
+	//Open a pipe to call lowess smoothing
+	FILE * pipe_in = popen(path, "r");
+	OutputFile = fopen(argv[argc-1],"w");
+	float correction_curve[401];
+	fread(correction_curve,4,401,pipe_in);
+	pclose(pipe_in);
+	//Reset read pointer
+	fseek(GC_ctrl, 0, SEEK_SET);
+	fseek(Depth_Bin, 0, SEEK_SET);
+	double cur_window_depth = 0.0;
+	uint64_t kmer_idx = 0;
+	char chrom[64];
+	char win_begin[64];
+	char win_end[64];
+	uint32_t cur_window_right, cur_window_left;
+	fscanf(Window_file, "%s\t%s\t%s\t%u\t%u\n", chrom, win_begin, win_end, &cur_window_left, &cur_window_right);
+	uint32_t read_size;
+	while (read_size = fread(gc_control, 1, buffer_size, GC_ctrl)) {
+		fread(depth, 1, read_size, Depth_Bin);
+		read_size >>= 1;
+		uint32_t cur_idx = 0;
+		while (cur_idx < read_size){
+			if (kmer_idx > cur_window_right) {
+				cur_window_depth /= cur_window_right - cur_window_left;
+				cur_window_depth /= total_depth/2;
+				sprintf(str_buf, "%s\t%s\t%s\t%f\n",chrom, win_begin, win_end,cur_window_depth);
+				fputs(str_buf, OutputFile);
+				if (fscanf(Window_file, "%s\t%s\t%s\t%u\t%u\n", chrom, win_begin, win_end, &cur_window_left, &cur_window_right)
+					!= 5) break;
+				cur_window_depth = 0.0;
+			}
+			if (kmer_idx < cur_window_right && kmer_idx >= cur_window_left){
+				cur_window_depth += correction_curve[gc_control[cur_idx] & 0x1FF] * depth[cur_idx];
+			}
+			cur_idx++;
+			kmer_idx++;
+		}
+	}
+	fclose(OutputFile);
 	return 0;
 }
 
@@ -701,6 +878,19 @@ uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, FILE
 	return first_index;
 }
 
+void help_search(){
+	puts("\nquicKmer search [Options] ref.fa\n\nOptions:");
+	puts("-h\t\tShow this help information");
+	puts("-k [num]\tSize of K-mer. Must be between 3-32. Default 30");
+	puts("-t [num]\tNumber of threads for edit distance search");
+	puts("-s [num]\tSize of hash dictionary. Can use suffix G,M,K");
+	puts("-e [num]\tEdit distance search. 0, 1 or 2");
+	puts("-d [num]\tEdit distance depth threshold to keep. 1..255, Default 100");
+	puts("-w [filename]\tOutput window definition file");
+	puts("-c [filename]\tInput bedfile for GC control regions");
+	puts("");
+}
+
 int main_search(int argc, char ** argv)
 {
 	uint8_t thread_count = 1;
@@ -711,13 +901,17 @@ int main_search(int argc, char ** argv)
 	FILE * window_file;
 	FILE * GC_file;
 	FILE * Control_bed;
+	if (argc < 2){
+		help_search();
+		return 1;
+	}
 	while ((getopt_return = getopt(argc, argv, "hk:t:s:e:d:f:w:c:")) != -1)
 	{
 		uint16_t len;
 		switch (getopt_return)
 		{
 			case 'h':
-				puts("Help information");
+				help_search();
 				return 1;
 			case 'k':
 				Set_Kmer_Size(atoi(optarg));
@@ -761,12 +955,9 @@ int main_search(int argc, char ** argv)
 				Edit_depth_thres = atoi(optarg);
 				printf("[Option] Max repeat count with edit distance %i\n",Edit_depth_thres);
 				break;
-			case 'f':
-				kmerdump = fopen(optarg, "w");
-				printf("[Option] Final k-mer list enabled: %s\n",optarg);
-				break;
 			case '?':
 				puts("Option error, check help");
+				help_search();
 				return 1;
 			default:
 				return 1;
@@ -907,7 +1098,12 @@ int main_search(int argc, char ** argv)
 
 void printversion() {
 	puts("QuicK-mer 2.0");
-	puts("Operation modes: \n\tindex\tIndex a bed format kmer list\n\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome\n");
+	puts("Operation modes: \n\tindex\tIndex a bed format kmer list");
+	puts("\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome");
+	puts("\test\tGC normalization into copy number\n");
+	puts("Simple operation:\n1. Construct a dictionary from fasta using \"search\"");
+	puts("2. Count depth from sample fasta/fastq \"count\"");
+	puts("3. Estimate copy number with \"est\"\n");
 }
 
 int main(int argc, char** argv)
@@ -919,6 +1115,10 @@ int main(int argc, char** argv)
 			return main_count(argc-1, argv+1);
 		else if (strcmp(argv[1], "search") == 0)
 			return main_search(argc-1, argv+1);
+		else if (strcmp(argv[1], "search") == 0)
+			return main_search(argc-1, argv+1);
+		else if (strcmp(argv[1], "est") == 0)
+			return main_estimate(argc-1, argv+1);
 		else {
 			printversion();
 			return 1;
