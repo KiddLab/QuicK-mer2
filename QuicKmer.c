@@ -832,12 +832,12 @@ uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, FILE
 							//Control Window generation
 							if (!ctrl_checked_same_chr) {
 								fseek(ctrl_file, 0, SEEK_SET); //In case the bed file is not in the same chr sort order
-								while (fscanf(ctrl_file, "%s\t%d\t%d", ctrl_chr, &ctrl_w_s, &ctrl_w_e) && 
+								while (fscanf(ctrl_file, "%s\t%d\t%d", ctrl_chr, &ctrl_w_s, &ctrl_w_e) == 3 && 
 									(ctrl_this_chr_absent = strcmp(ctrl_chr, chrom_name)));
 								ctrl_checked_same_chr = 1;
 							}
 							else while (chr_pos > ctrl_w_e && !ctrl_this_chr_absent &&
-								fscanf(ctrl_file, "%s\t%d\t%d", ctrl_chr, &ctrl_w_s, &ctrl_w_e))
+								fscanf(ctrl_file, "%s\t%d\t%d", ctrl_chr, &ctrl_w_s, &ctrl_w_e) == 3)
 								if (strcmp(ctrl_chr, chrom_name)) {
 									ctrl_this_chr_absent = 1;
 									break;
@@ -898,9 +898,9 @@ int main_search(int argc, char ** argv)
 	FILE * kmerdump;
 	extern char *optarg;
 	char dump_kmer = 0;
-	FILE * window_file;
-	FILE * GC_file;
-	FILE * Control_bed;
+	FILE * window_file = NULL;
+	FILE * GC_file = NULL;
+	FILE * Control_bed = NULL;
 	if (argc < 2){
 		help_search();
 		return 1;
