@@ -874,7 +874,7 @@ uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, FILE
 		fclose(GC_binout);
 	}
 	Kmer_next_index[last_index] = first_index;
-	printf("Total output %i k-mers\n", count);
+	printf("Total output %u k-mers\n", count);
 	return first_index;
 }
 
@@ -973,6 +973,7 @@ int main_search(int argc, char ** argv)
 		puts("Memory allocation failed");
 		return 1;
 	}
+	printf("ADDR %lX %lX %lX\n", Kmer_hash, Kmer_occr, Kmer_edit_depth);
 	char path[65535];
 	strcpy(path, argv[argc-1]);
 	strcat(path, ".qm");
@@ -1087,11 +1088,15 @@ int main_search(int argc, char ** argv)
 	fwrite(&Edit_depth_thres, 1, 1, Hash_file);
 	fwrite(&Hash_size, 8, 1, Hash_file);
 	fwrite(&first_index, 8, 1, Hash_file);
+	printf("ADDR %lX %lX %lX\n", Kmer_hash, Kmer_occr, Kmer_edit_depth);
+	fflush(stdout);
 	fwrite((void *) Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file);
-	free(Kmer_hash);
+	puts("Writing chain list");
+	fflush(stdout);
 	fwrite((void *) Kmer_next_index, sizeof(uint32_t), Hash_size, Hash_file);
-	free(Kmer_next_index);
 	fclose(Hash_file);
+	free(Kmer_hash);
+	free(Kmer_next_index);
 	puts("Kmer search finished!");
 	return 0;
 }
