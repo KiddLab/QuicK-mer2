@@ -283,14 +283,14 @@ int main_count(int argc, char ** argv)
 	fread(&Hash_size, 8, 1, Hash_file);
 	uint64_t first_idx;
 	fread(&first_idx, 8, 1, Hash_file);
-	printf("Hash Size: 0x%lX\nFirst location: 0x%X\n", Hash_size, first_idx);
+	printf("Hash Size: 0x%lX\nFirst location: 0x%lX\n", Hash_size, first_idx);
 	Kmer_hash = (uint64_t *) malloc(Hash_size * sizeof(uint64_t));
 	if (!Kmer_hash) {
 		puts("Memory allocation failed");
 		fclose(Hash_file);
 		return 1;
 	}
-	printf("Read 0x%X hash\n",fread(Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file));
+	printf("Read 0x%lX hash\n",fread(Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file));
 	Kmer_depth = (uint16_t *) calloc(Hash_size, sizeof(uint16_t));
 	if (!Kmer_depth) {
 		puts("Memory allocation failed");
@@ -317,11 +317,17 @@ int main_count(int argc, char ** argv)
 		}
 	}
 	//End thread pool
+	time_t start_time, end_time;
+	time(&start_time);
 	char line[350];
 	thd_idx = 0;
 	char pushed;
 	uint32_t FIFO_write_idx = 0;
 	uint64_t process_kmers = 0;
+	fgets(line, 350, fasta_input);
+	char set_fastq = 0;
+	if (line[0] == '@') set_fastq = 1;
+	else fseek(fasta_input, 0, SEEK_SET);
 	while (fgets(line, 350, fasta_input)){
 		if (line[0] == '>') continue;
 		char * seq_char_index = line;
@@ -376,6 +382,11 @@ int main_count(int argc, char ** argv)
 			}
 			seq_char_index++;
 		}
+		if (set_fastq){
+			fgets(line, 350, fasta_input);
+			fgets(line, 350, fasta_input);
+			fgets(line, 350, fasta_input);
+		}
 	}
 	//Join threads
 	if (thread_count)
@@ -400,9 +411,10 @@ int main_count(int argc, char ** argv)
 		free(tid);
 		free(Thread_arg);
 	}
-	
+	time(&end_time);
+	printf("Counting elapse %i sec, total %i kmers\n", end_time - start_time, process_kmers);
 	//Dump count file
-	printf("Pileup finish\nRead chain file %i entries\n",fread(Kmer_hash, sizeof(uint32_t), Hash_size, Hash_file));
+	printf("Pileup finish\nRead chain file %li entries\n",fread(Kmer_hash, sizeof(uint32_t), Hash_size, Hash_file));
 	strcpy(path, argv[argc-3]);
 	strcat(path, ".qgc");
 	FILE * GC_control = fopen(path, "r");
@@ -415,6 +427,7 @@ int main_count(int argc, char ** argv)
 	uint16_t gc_control[buffer_size];
 	uint32_t chaining_idx = first_idx;
 	double Control_curve[401] = {0};
+	double Control_std[401] = {0};
 	uint32_t Control_count[401] = {0};
 	do {
 		buffer[buf_count] = Kmer_depth[chaining_idx];
@@ -425,6 +438,7 @@ int main_count(int argc, char ** argv)
 			if (gc_control[buf_count] & 0x8000) {
 				Control_curve[gc_control[buf_count] & 0x1FF] += buffer[buf_count];
 				Control_count[gc_control[buf_count] & 0x1FF]++;
+				Control_std[gc_control[buf_count] & 0x1FF] += buffer[buf_count] * buffer[buf_count];
 			}
 		}
 		buf_count++;
@@ -449,8 +463,11 @@ int main_count(int argc, char ** argv)
 		for (uint16_t i = 0; i < 401; i++){
 			total_count += Control_count[i];
 			total_depth += Control_curve[i];
-			if (Control_count[i]) Control_curve[i] /= Control_count[i];
-			sprintf(str_buf, "%.2f\t%f\t%i\n", i/4.0, Control_curve[i], Control_count[i]);
+			if (Control_count[i]) {
+				Control_curve[i] /= Control_count[i];
+				Control_std[i] = Control_std[i] / Control_count[i] - Control_curve[i] * Control_curve[i];
+			}
+			sprintf(str_buf, "%.2f\t%f\t%i\t%f\n", i/4.0, Control_curve[i], Control_count[i], Control_std[i]);
 			fputs(str_buf, GC_curve);
 		}
 		total_depth /= total_count;
@@ -512,6 +529,7 @@ int main_estimate(int argc, char ** argv){
 		FILE * GC_curve = fopen(path, "w");
 		uint32_t read_size;
 		double Control_curve[401] = {0};
+		double Control_std[401] = {0};
 		uint32_t Control_count[401] = {0};
 		while (read_size = fread(gc_control, 1, buffer_size, GC_ctrl)) {
 			fread(depth, 1, read_size, Depth_Bin);
@@ -520,6 +538,7 @@ int main_estimate(int argc, char ** argv){
 				if (gc_control[read_size] & 0x8000){
 					Control_curve[gc_control[read_size] & 0x1FF] += depth[read_size];
 					Control_count[gc_control[read_size] & 0x1FF]++;
+					Control_std[gc_control[read_size] & 0x1FF] += depth[read_size] * depth[read_size];
 				}
 				read_size -= 1;
 			}
@@ -528,8 +547,11 @@ int main_estimate(int argc, char ** argv){
 		for (uint16_t i = 0; i < 401; i++){
 			total_count += Control_count[i];
 			total_depth += Control_curve[i];
-			if (Control_count[i]) Control_curve[i] /= Control_count[i];
-			sprintf(str_buf, "%.2f\t%f\t%i\n", i/4.0, Control_curve[i], Control_count[i]);
+			if (Control_count[i]) {
+				Control_curve[i] /= Control_count[i];
+				Control_std[i] = Control_std[i] / Control_count[i] - Control_curve[i] * Control_curve[i];
+			}
+			sprintf(str_buf, "%.2f\t%f\t%i\t%f\n", i/4.0, Control_curve[i], Control_count[i], Control_std[i]);
 			fputs(str_buf, GC_curve);
 		}
 	}
@@ -634,12 +656,99 @@ void * Kmer_filter_TSK(void *argvs)
 	printf("Thread %i finished\n", thread_ID);
 }
 
+void Resize_hash_table(uint64_t old_size, uint64_t new_size){
+	printf("Resize %f\n", (float)new_size/old_size);
+	uint64_t index = 0;
+	uint64_t hash_index;
+	void * realloc_ptr;
+	if (new_size > old_size) {
+		if (realloc_ptr = realloc(Kmer_hash, new_size * sizeof(uint64_t))) Kmer_hash = realloc_ptr;
+		else {
+			puts("Realloc failed!\n");
+			return;
+		}
+		if (Kmer_occr && (realloc_ptr = realloc(Kmer_occr, new_size))) Kmer_occr = realloc_ptr;
+		else {
+			puts("Realloc failed!\n");
+			return;
+		}
+		puts("Allocation success");
+		memset(Kmer_hash+old_size, 0, sizeof(uint64_t)*(new_size - old_size));
+		Hash_size = new_size;
+		index = old_size - 1;
+		while (index >= (old_size >> 1)){
+			if (Kmer_hash[index]){
+				Find_hash(Kmer_hash[index], &hash_index, Kmer_hash);
+				if (hash_index != index) {
+					Kmer_hash[hash_index] = Kmer_hash[index];
+					Kmer_hash[index] = 0;
+					if (Kmer_occr) {
+						Kmer_occr[hash_index] = Kmer_occr[index];
+						Kmer_occr[index] = 0;
+					}
+				}
+			}
+			index--;
+		}
+		index = 0;
+		while (index < (old_size >> 1)) {
+			if (Kmer_hash[index]){
+				Find_hash(Kmer_hash[index], &hash_index, Kmer_hash);
+				if (hash_index != index) {
+					Kmer_hash[hash_index] = Kmer_hash[index];
+					Kmer_hash[index] = 0;
+					if (Kmer_occr) {
+						Kmer_occr[hash_index] = Kmer_occr[index];
+						Kmer_occr[index] = 0;
+					}
+				}
+			}
+			index++;
+		}
+	}
+	else {
+		Hash_size = new_size;
+		while (index < (old_size >> 1)) {
+			if (Kmer_hash[index]){
+				Find_hash(Kmer_hash[index], &hash_index, Kmer_hash);
+				if (hash_index != index) {
+					Kmer_hash[hash_index] = Kmer_hash[index];
+					Kmer_hash[index] = 0;
+					if (Kmer_occr) {
+						Kmer_occr[hash_index] = Kmer_occr[index];
+						Kmer_occr[index] = 0;
+					}
+				}
+			}
+			index++;
+		}
+		index = old_size - 1;
+		while (index >= (old_size >> 1)){
+			if (Kmer_hash[index]){
+				Find_hash(Kmer_hash[index], &hash_index, Kmer_hash);
+				if (hash_index != index) {
+					Kmer_hash[hash_index] = Kmer_hash[index];
+					Kmer_hash[index] = 0;
+					if (Kmer_occr) {
+						Kmer_occr[hash_index] = Kmer_occr[index];
+						Kmer_occr[index] = 0;
+					}
+				}
+			}
+			index--;
+		}
+		if (realloc_ptr = realloc(Kmer_hash, new_size * sizeof(uint64_t))) Kmer_hash = realloc_ptr;
+		if (realloc_ptr = realloc(Kmer_occr, new_size)) Kmer_occr = realloc_ptr;
+	}
+}
+
 void hash_from_fasta(FILE * fasta){
 	char fasta_buffer[200];
 	uint8_t charge_size = 0;
 	uint64_t encoded = 0;
 	uint64_t encoded_r = 0;
 	uint64_t processed = 0;
+	uint64_t count = 0;
 	uint32_t worst = 0;
 	uint32_t hist[65536] = {0};
 	//Loop through fasta lines
@@ -688,6 +797,7 @@ void hash_from_fasta(FILE * fasta){
 				}
 				if (!Kmer_hash[hash_index])
 				{
+					count++;
 					if (collision > worst){
 						worst = collision;
 						printf("Worst %u\n", worst);
@@ -699,25 +809,30 @@ void hash_from_fasta(FILE * fasta){
 				if (Kmer_occr[hash_index] < 255) Kmer_occr[hash_index]++;
 			}
 		}
+		if (count > 0.8 * Hash_size) {
+			Resize_hash_table(Hash_size, Hash_size << 1);
+			memset(hist, 0, 4 * 65536);
+			worst = 0;
+		}
 		processed++;
 		if (processed % 1666667 == 0){
 			float average = 0;
-			uint64_t count = 0;
+			uint64_t sum = 0;
 			for (uint32_t k = 0; k < 65536; k++){
-				count += hist[k];
+				sum += hist[k];
 				average += k * hist[k];
 			}
-			average /= count;
+			average /= sum;
 			printf("Processed %ubp, total %u Kmers, average collision %f\n", processed*60, count, average);
 		}
 	}
 	float average = 0;
-	uint64_t count = 0;
+	uint64_t sum = 0;
 	for (uint32_t k = 0; k < 65536; k++){
-		count += hist[k];
+		sum += hist[k];
 		average += k * hist[k];
 	}
-	printf("Average %f, fill %f\% \n", average/count, ((float) count * 100)/ Hash_size);
+	printf("Average %f, fill %f\% \n", average/sum, ((float) count * 100)/ Hash_size);
 	uint64_t occr_idx = 0;
 	uint64_t unique_count = 0;
 	while (occr_idx < Hash_size)
@@ -886,7 +1001,7 @@ void help_search(){
 	puts("-s [num]\tSize of hash dictionary. Can use suffix G,M,K");
 	puts("-e [num]\tEdit distance search. 0, 1 or 2");
 	puts("-d [num]\tEdit distance depth threshold to keep. 1..255, Default 100");
-	puts("-w [filename]\tOutput window definition file");
+	puts("-w [num]\tOutput window definition size. Default 1000");
 	puts("-c [filename]\tInput bedfile for GC control regions");
 	puts("");
 }
@@ -901,6 +1016,7 @@ int main_search(int argc, char ** argv)
 	FILE * window_file = NULL;
 	FILE * GC_file = NULL;
 	FILE * Control_bed = NULL;
+	uint32_t window_size = 1000;
 	if (argc < 2){
 		help_search();
 		return 1;
@@ -944,8 +1060,8 @@ int main_search(int argc, char ** argv)
 				printf("[Option] Control bedfile %s\n",optarg);
 				break;
 			case 'w':
-				window_file = fopen(optarg, "w");
-				printf("[Option] Write window file %s\n",optarg);
+				window_size = atoi(optarg);
+				printf("[Option] Write window size %s\n",optarg);
 				break;
 			case 'e':
 				edit_distance = atoi(optarg);
@@ -967,8 +1083,7 @@ int main_search(int argc, char ** argv)
 	//Malloc
 	Kmer_hash = (uint64_t *) calloc(Hash_size, sizeof(uint64_t));
 	Kmer_occr = (uint8_t *) calloc(Hash_size, sizeof(uint8_t));
-	Kmer_edit_depth = (uint8_t *) calloc(Hash_size, sizeof(uint8_t));
-	if (!Kmer_hash || !Kmer_edit_depth || !Kmer_occr)
+	if (!Kmer_hash || !Kmer_occr)
 	{
 		puts("Memory allocation failed");
 		return 1;
@@ -982,12 +1097,20 @@ int main_search(int argc, char ** argv)
 		puts("File creation failed");
 		return 1;
 	}
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".bed");
+	window_file = fopen(path, "w");
+	if (!window_file) {
+		puts("Window creation failed");
+		return 1;
+	}
 	FILE * fasta = fopen(argv[argc-1], "r");
 	hash_from_fasta(fasta);
 
 	//Filter
 	if (edit_distance)
 	{
+		Kmer_edit_depth = (uint8_t *) calloc(Hash_size, sizeof(uint8_t));
 		uint64_t thread_seg_count = Hash_size / thread_count;
 		uint64_t Thread_start_idx = 0;
 		uint8_t thd_idx;
@@ -1017,7 +1140,7 @@ int main_search(int argc, char ** argv)
 	uint64_t count = 0;
 	for (occr_idx = 0; occr_idx < Hash_size; occr_idx++)
 	{
-		if (Kmer_occr[occr_idx] > 1 || Kmer_edit_depth[occr_idx] >= Edit_depth_thres)
+		if (Kmer_occr[occr_idx] > 1 || (Kmer_edit_depth && Kmer_edit_depth[occr_idx] >= Edit_depth_thres))
 		{
 			//Kmers to get rid off
 			Kmer_hash[occr_idx] = 0;
@@ -1075,7 +1198,7 @@ int main_search(int argc, char ** argv)
 		strcat(path, ".qgc");
 		GC_file = fopen(path, "w");
 	}
-	uint64_t first_index = dump_kmer_list(kmerdump, fasta, window_file, Control_bed, GC_file, 400, 1000);
+	uint64_t first_index = dump_kmer_list(kmerdump, fasta, window_file, Control_bed, GC_file, 400, window_size);
 	puts("Writing index file");
 	//Save QM index binary
 	
@@ -1099,6 +1222,57 @@ int main_search(int argc, char ** argv)
 	free(Kmer_next_index);
 	puts("Kmer search finished!");
 	return 0;
+}
+
+int main_sparse_kmer(int argc, char ** argv){
+	char getopt_return;
+	extern char *optarg;
+	while ((getopt_return = getopt(argc, argv, "h")) != -1)
+	{
+		uint16_t len;
+		switch (getopt_return)
+		{
+			case 'h':
+				help_count();
+				return 1;
+			case '?':
+				puts("Option error, check help");
+				help_count();
+				return 1;
+			default:
+				return 1;
+		}
+	}
+	char path[65536];
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".qm");
+	FILE * Hash_file = fopen(path, "r");
+	uint32_t thin_frac = atoi(argv[argc-2]);
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".bin");
+	FILE * OutFile = fopen(path, "w");
+	fseek(Hash_file, 4, 0);
+	fread(&Kmer_size, 1, 1, Hash_file);
+	Set_Kmer_Size(Kmer_size);
+	fseek(Hash_file, 8, 0);
+	fread(&Hash_size, 8, 1, Hash_file);
+	uint64_t first_idx;
+	fread(&first_idx, 8, 1, Hash_file);
+	printf("Hash Size: 0x%lX\nFirst location: 0x%X\n", Hash_size, first_idx);
+	Kmer_hash = (uint64_t *) malloc(Hash_size * sizeof(uint64_t));
+	if (!Kmer_hash) {
+		puts("Memory allocation failed");
+		fclose(Hash_file);
+		return 1;
+	}
+	printf("Read 0x%X hash\n",fread(Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file));
+	Kmer_next_index = (uint32_t *) malloc(Hash_size * sizeof(uint32_t));
+	if (!Kmer_depth) {
+		puts("Memory allocation failed");
+		free(Kmer_hash);
+		fclose(Hash_file);
+		return 1;
+	}
 }
 
 void printversion() {
