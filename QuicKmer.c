@@ -112,8 +112,8 @@ uint64_t Reverse_strand_encoded(uint64_t encoded_kmer)
 
 int main_hash(int argc, char ** argv)
 {
-	FILE *kmer_list = fopen(argv[0], "r");
-	FILE * Hash_file = fopen(argv[1], "w");
+	FILE *kmer_list = fopen(argv[argc - 2], "r");
+	FILE * Hash_file = fopen(argv[argc - 1], "w");
 	if (!Hash_file) {
 		puts("File creation failed");
 		return 1;
@@ -377,7 +377,7 @@ int main_count(int argc, char ** argv)
 							Kmer_depth[hash_index]++;
 					}
 					process_kmers++;
-					if ((process_kmers & 0x3FFFFFFF) == 0) printf("Read %iG kmers\n",process_kmers >> 30);
+					if ((process_kmers & 0x3FFFFFFF) == 0) printf("Read %liG kmers\n",process_kmers >> 30);
 				}
 			}
 			seq_char_index++;
@@ -412,14 +412,14 @@ int main_count(int argc, char ** argv)
 		free(Thread_arg);
 	}
 	time(&end_time);
-	printf("Counting elapse %i sec, total %i kmers\n", end_time - start_time, process_kmers);
+	printf("Counting elapse %u sec, total %lu kmers\n", end_time - start_time, process_kmers);
 	//Dump count file
-	printf("Pileup finish\nRead chain file %li entries\n",fread(Kmer_hash, sizeof(uint32_t), Hash_size, Hash_file));
+	printf("Pileup finish\nRead chain file %lu entries\n",fread(Kmer_hash, sizeof(uint32_t), Hash_size, Hash_file));
 	strcpy(path, argv[argc-3]);
 	strcat(path, ".qgc");
 	FILE * GC_control = fopen(path, "r");
 	if (GC_control == NULL)
-		printf("GC control file %s absent. Continue without GC correction!", path);
+		printf("GC control file %s absent. Continue without GC correction!\n", path);
 	
 	uint32_t * Kmer_next_loc = (uint32_t *) Kmer_hash;
 	uint32_t buf_count = 0;
@@ -611,7 +611,7 @@ int main_estimate(int argc, char ** argv){
 	return 0;
 }
 
-void Recurse_edit(uint8_t Edits, uint64_t encoded, uint64_t encoded_r, uint8_t per_base, uint64_t kmer_idx)
+char Recurse_edit(uint8_t Edits, uint64_t encoded, uint64_t encoded_r, uint8_t per_base, uint64_t kmer_idx)
 {
 	Edits--;
 	for (char per_idx = 0; per_idx < per_base; per_idx++)
@@ -623,14 +623,20 @@ void Recurse_edit(uint8_t Edits, uint64_t encoded, uint64_t encoded_r, uint8_t p
 			Permute_kmer(&local_encoded, &local_encoded_r, per_idx, per_value);
 			//Recursive edit the kmer
 			if (Edits)
-				Recurse_edit(Edits, local_encoded, local_encoded_r, per_idx, kmer_idx);
+				if (Recurse_edit(Edits, local_encoded, local_encoded_r, per_idx, kmer_idx)) return 1;
 			//Find hash and finish
 			uint64_t hash_index;
 			if (local_encoded > local_encoded_r) local_encoded = local_encoded_r;
-			if (Find_hash(local_encoded,&hash_index,Kmer_hash))
-				Kmer_edit_depth[kmer_idx] += Kmer_occr[hash_index];
+			if (Find_hash(local_encoded,&hash_index,Kmer_hash)) {
+				if (Kmer_edit_depth[kmer_idx] + Kmer_occr[hash_index] > Edit_depth_thres) {
+					Kmer_edit_depth[kmer_idx] = Edit_depth_thres + 1;
+					return 1;
+				}
+				else Kmer_edit_depth[kmer_idx] += Kmer_occr[hash_index];
+			}
 		}
 	}
+	return 0;
 }
 
 void * Kmer_filter_TSK(void *argvs)
@@ -1227,17 +1233,26 @@ int main_search(int argc, char ** argv)
 int main_sparse_kmer(int argc, char ** argv){
 	char getopt_return;
 	extern char *optarg;
-	while ((getopt_return = getopt(argc, argv, "h")) != -1)
+	uint16_t window_size = 1000;
+	FILE * Control_bed = NULL;
+	while ((getopt_return = getopt(argc, argv, "hw:c:")) != -1)
 	{
 		uint16_t len;
 		switch (getopt_return)
 		{
 			case 'h':
-				help_count();
+				puts("quicKmer sparse bp ref.fa");
+				puts("\tbp\tReduce number of kmer to every 1/bp");
 				return 1;
+			case 'w':
+				window_size = atoi(optarg);
+				break;
+			case 'c':
+				Control_bed = fopen(optarg, "r");
+				printf("[Option] Control bedfile %s\n",optarg);
+				break;
 			case '?':
 				puts("Option error, check help");
-				help_count();
 				return 1;
 			default:
 				return 1;
@@ -1247,12 +1262,12 @@ int main_sparse_kmer(int argc, char ** argv){
 	strcpy(path, argv[argc-1]);
 	strcat(path, ".qm");
 	FILE * Hash_file = fopen(path, "r");
+	FILE * fasta = fopen(argv[argc-1], "r");
 	uint32_t thin_frac = atoi(argv[argc-2]);
-	strcpy(path, argv[argc-1]);
-	strcat(path, ".bin");
-	FILE * OutFile = fopen(path, "w");
 	fseek(Hash_file, 4, 0);
 	fread(&Kmer_size, 1, 1, Hash_file);
+	fread(&edit_distance, 1, 1, Hash_file);
+	fread(&Edit_depth_thres, 1, 1, Hash_file);
 	Set_Kmer_Size(Kmer_size);
 	fseek(Hash_file, 8, 0);
 	fread(&Hash_size, 8, 1, Hash_file);
@@ -1265,21 +1280,133 @@ int main_sparse_kmer(int argc, char ** argv){
 		fclose(Hash_file);
 		return 1;
 	}
-	printf("Read 0x%X hash\n",fread(Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file));
+	printf("Read 0x%lX hash\n",fread(Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file));
 	Kmer_next_index = (uint32_t *) malloc(Hash_size * sizeof(uint32_t));
-	if (!Kmer_depth) {
+	if (!Kmer_next_index) {
 		puts("Memory allocation failed");
 		free(Kmer_hash);
 		fclose(Hash_file);
 		return 1;
 	}
+	printf("Read 0x%lX chain file\n",fread(Kmer_next_index, sizeof(uint32_t), Hash_size, Hash_file));
+	fclose(Hash_file);
+	//Scan fasta
+	char fasta_buffer[200];
+	uint8_t charge_size = 0;
+	uint64_t encoded = 0;
+	uint64_t encoded_r = 0;
+	uint64_t count = 0;
+	uint64_t last_keep_index;
+	uint32_t bp_count, last_kmer_bp;
+	//Loop through fasta lines
+	if (thin_frac > 1)
+	{
+		while (fgets (fasta_buffer, 200, fasta) && fasta_buffer[0])
+		{
+			char * char_idx = fasta_buffer;
+			if (*char_idx == '>')
+			{
+				charge_size = 0;
+				encoded = 0;
+				encoded_r = 0;
+				bp_count = 0;
+				last_kmer_bp = 0;
+				printf("%s", fasta_buffer);
+				continue;
+			}
+			while (*char_idx && *char_idx != '\n')
+			{
+				if (*char_idx == 'N'){
+					charge_size = 0;
+					encoded = 0;
+					encoded_r = 0;
+					char_idx++;
+					continue;
+				}
+				uint8_t Letter = (*char_idx >> 1) & 3;
+				char_idx++;
+				encoded <<= 2;
+				encoded |= Letter;
+				Letter = (Letter - 2) & 3; //Very special conversion between A-T and G-C
+				encoded_r |= (uint64_t)Letter << 60;
+				encoded_r >>= 2;
+				uint64_t kmer = encoded & (((uint64_t)1 << (Kmer_size << 1)) - 1);
+				if (kmer > encoded_r) kmer = encoded_r;
+				if (charge_size < Kmer_size) charge_size++;
+				if (kmer && charge_size == Kmer_size)
+				{	
+					uint64_t hash_index;
+					if (Find_hash(kmer, &hash_index, Kmer_hash))
+					{
+						if (bp_count - last_kmer_bp < thin_frac)
+							Kmer_next_index[hash_index] = 0;
+						else {
+							last_kmer_bp = bp_count;
+							if (count) Kmer_next_index[last_keep_index] = hash_index;
+							else {
+								first_idx = hash_index;
+								Kmer_next_index[first_idx] = hash_index;
+							}
+							last_keep_index = hash_index;
+							count++;
+						}
+					}
+				}
+				bp_count++;
+			}
+		}
+		Kmer_next_index[last_keep_index] = first_idx;
+		printf("%i kmers left\n", count);
+		//Recalculate optimal hash size
+		uint64_t Optimal_size = (uint64_t) 1 << (uint8_t) ceil(log2(count / 0.8));
+		for (count = 0; count < Hash_size; count++)
+			if (!Kmer_next_index[count]) {
+				Kmer_hash[count] = 0;
+				Kmer_next_index[count] = 0;
+			}
+		
+		if (Optimal_size != Hash_size) Resize_hash_table(Hash_size, Optimal_size);
+	}
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".bed");
+	FILE * window_file = fopen(path, "w");
+	strcpy(path, argv[argc-1]);
+	FILE * GC_file = NULL;
+	if (Control_bed != NULL) {
+		strcat(path, ".qgc");
+		GC_file = fopen(path, "w");
+	}
+	fseek(fasta, 0, SEEK_CUR);
+	first_idx = dump_kmer_list(NULL, fasta, window_file, Control_bed, GC_file, 400, window_size);
+
+	//Dump new hash table
+	strcpy(path, argv[argc-1]);
+	strcat(path, ".rqm");
+	Hash_file = fopen(path, "w");
+	const char Version[5] = "QM11";
+	fwrite(Version, 1, 4, Hash_file);
+	fwrite(&Kmer_size, 1, 1, Hash_file);
+	fwrite(&edit_distance, 1, 1, Hash_file);
+	fwrite(&Edit_depth_thres, 1, 1, Hash_file);
+	fwrite(&thin_frac, 1, 1, Hash_file);
+	fwrite(&Hash_size, 8, 1, Hash_file);
+	fwrite(&first_idx, 8, 1, Hash_file);
+	fwrite((void *) Kmer_hash, sizeof(uint64_t), Hash_size, Hash_file);
+	puts("Writing chain list");
+	fwrite((void *) Kmer_next_index, sizeof(uint32_t), Hash_size, Hash_file);
+	fclose(Hash_file);
+	free(Kmer_hash);
+	free(Kmer_next_index);
+	puts("Sparse kmer finished");
+	return 0;
 }
 
 void printversion() {
 	puts("QuicK-mer 2.0");
 	puts("Operation modes: \n\tindex\tIndex a bed format kmer list");
 	puts("\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome");
-	puts("\test\tGC normalization into copy number\n");
+	puts("\test\tGC normalization into copy number");
+	puts("\tsparse\tFractionate kmer in index for memory reduction or regenerate GC control/Window\n");
 	puts("Simple operation:\n1. Construct a dictionary from fasta using \"search\"");
 	puts("2. Count depth from sample fasta/fastq \"count\"");
 	puts("3. Estimate copy number with \"est\"\n");
@@ -1294,10 +1421,10 @@ int main(int argc, char** argv)
 			return main_count(argc-1, argv+1);
 		else if (strcmp(argv[1], "search") == 0)
 			return main_search(argc-1, argv+1);
-		else if (strcmp(argv[1], "search") == 0)
-			return main_search(argc-1, argv+1);
 		else if (strcmp(argv[1], "est") == 0)
 			return main_estimate(argc-1, argv+1);
+		else if (strcmp(argv[1], "sparse") == 0)
+			return main_sparse_kmer(argc-1, argv+1);
 		else {
 			printversion();
 			return 1;
