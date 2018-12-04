@@ -1406,7 +1406,7 @@ void printversion() {
 	puts("Operation modes: \n\tindex\tIndex a bed format kmer list");
 	puts("\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome");
 	puts("\test\tGC normalization into copy number");
-	puts("\tsparse\tFractionate kmer in index for memory reduction or regenerate GC control/Window\n");
+	puts("\tsparse\tFractionate indexed kmer for memory reduction or regenerate GC control/Window\n");
 	puts("Simple operation:\n1. Construct a dictionary from fasta using \"search\"");
 	puts("2. Count depth from sample fasta/fastq \"count\"");
 	puts("3. Estimate copy number with \"est\"\n");
