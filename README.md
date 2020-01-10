@@ -9,7 +9,7 @@ You may receive some warnings. This will create an executable named quicKmer2.
 ## Usage
 The basic functionality of quickMer2 is described by executing the program with no options.
 
-'''
+```
 ./quicKmer2 
 QuicK-mer2
 Operation modes: 
@@ -23,4 +23,4 @@ Simple operation:
 1. Construct a dictionary from fasta using "search"
 2. Count depth from sample fasta/fastq "count"
 3. Estimate copy number with "est"
-'''
+```
