@@ -235,7 +235,7 @@ void * Kmer_count_TSK(void *argvs)
 }
 
 void help_count(){
-	puts("\nquicKmer count [Options] ref.fa sample.fast[a/q] Out_prefix\n\nOptions:");
+	puts("\nquicKmer2 count [Options] ref.fa sample.fast[a/q] Out_prefix\n\nOptions:");
 	puts("-h\t\tShow this help information");
 	puts("-t [num]\tNumber of threads");
 }
@@ -474,12 +474,12 @@ int main_count(int argc, char ** argv)
 		printf("Mean sequencing depth: %.2f\n",total_depth);
 		fclose(GC_curve);
 	}
-	puts("Exit QuicK-mer count");
+	puts("Exit quicK-mer2 count");
 	return 0;
 }
 
 void help_est(){
-	puts("quicKmer est ref.fa sample_prefix output.bed");
+	puts("quicKmer2 est ref.fa sample_prefix output.bed");
 	puts("\tref.fa\t\tPrefix to genome reference. Program requires .qgc and .bed definition");
 	puts("\tsample_prefix\tPrefix to sample.bin");
 	puts("\toutput.bed\tOutput bedfile for copy number");
@@ -1000,7 +1000,7 @@ uint64_t dump_kmer_list(FILE * Kmer_list, FILE * fasta, FILE * window_file, FILE
 }
 
 void help_search(){
-	puts("\nquicKmer search [Options] ref.fa\n\nOptions:");
+	puts("\nquicKmer2 search [Options] ref.fa\n\nOptions:");
 	puts("-h\t\tShow this help information");
 	puts("-k [num]\tSize of K-mer. Must be between 3-32. Default 30");
 	puts("-t [num]\tNumber of threads for edit distance search");
@@ -1241,7 +1241,7 @@ int main_sparse_kmer(int argc, char ** argv){
 		switch (getopt_return)
 		{
 			case 'h':
-				puts("quicKmer sparse bp ref.fa");
+				puts("quicKmer2 sparse bp ref.fa");
 				puts("\tbp\tReduce number of kmer to every 1/bp");
 				return 1;
 			case 'w':
@@ -1402,7 +1402,7 @@ int main_sparse_kmer(int argc, char ** argv){
 }
 
 void printversion() {
-	puts("QuicK-mer 2.0");
+	puts("QuicK-mer2");
 	puts("Operation modes: \n\tindex\tIndex a bed format kmer list");
 	puts("\tcount\tCNV estimate from library\n\tsearch\tSearch K-kmer in genome");
 	puts("\test\tGC normalization into copy number");
