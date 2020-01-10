@@ -46,7 +46,27 @@ Options:
 
 The -c option specifies a bedfile of regions that are not expected to be copy-number variable
 across the analyzed samples. Sex chromosomes, unplaced chromosome sequences, known segmental duplications
-and known copy number varints should be excluded.  Exclusion files and be converted to inclusion files
+and known copy-number variants should be excluded.  Exclusion files and be converted to inclusion files
 using appropriate bedtools commands.
+
+Next, the occurrences of each k-mer are tabulated in a set of sequence reads using the count command.
+
+```
+./quicKmer2 count -h
+
+quicKmer2 count [Options] ref.fa sample.fast[a/q] Out_prefix
+
+Options:
+-h		Show this help information
+-t [num]	Number of threads
+```
+
+To process from an aligned BAM file, a typical command would be:
+
+```
+samtools view -F 3840 PATH/TO/BAM/FILE | awk '{print ">\n"$10}' | 
+quicKmer2 count -t NUMTHREADS /dev/fd/0 GENOME/REF/FASTA.fa  OUTPUT/DIR/SAMPLE_NAME
+```
+
 
 
