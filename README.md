@@ -5,8 +5,16 @@ To compile the software, clone the repository, move the QuicK-mer2 directory and
 
 You may receive some warnings. This will create an executable named quicKmer2.  
 
-If you are interested in generating copy-number estimates based on multi-mapping reads, consider fastCN, accessible at: https://github.com/KiddLab/fastCN
+The QuicK-mer2 directory needs to be in your path so that the correction script can find required utilities. You can add the directory to your path temporarily using
 
+```
+export PATH=$PWD:$PATH
+```
+
+to permanently add it, follow the recommendations for installing software and updating user PATH on your system.
+
+
+If you are interested in generating copy-number estimates based on multi-mapping reads, consider fastCN, accessible at: https://github.com/KiddLab/fastCN
 
 ## Usage
 The basic functionality of quickMer2 is described by executing the program with no options.
