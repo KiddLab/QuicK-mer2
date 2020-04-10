@@ -112,6 +112,15 @@ uint64_t Reverse_strand_encoded(uint64_t encoded_kmer)
 
 int main_hash(int argc, char ** argv)
 {
+	if (argc < 2){
+		puts("\nquicKmer2 index kmer-file-infile kmer-outfile\n");
+		puts("makes index from bed file of kmer");
+		puts("kmer-outfile should end in .qm");
+		puts("kmer should be in column 4 of input file and all be of same size");		
+		puts("for now, only default options are implemented for kmer and hash size");		
+		return 1;
+	}
+	
 	FILE *kmer_list = fopen(argv[argc - 2], "r");
 	FILE * Hash_file = fopen(argv[argc - 1], "w");
 	if (!Hash_file) {
@@ -245,6 +254,11 @@ int main_count(int argc, char ** argv)
 	uint8_t thread_count = 0;
 	char getopt_return;
 	extern char *optarg;
+	if (argc < 2){
+		help_count();
+		return 1;
+	}
+	
 	while ((getopt_return = getopt(argc, argv, "ht:")) != -1)
 	{
 		uint16_t len;
@@ -492,6 +506,13 @@ int main_estimate(int argc, char ** argv){
 	FILE * Window_file;
 	FILE * OutputFile;
 	char path[65536];
+	
+	if (argc < 2){
+		help_est();
+		return 1;
+	}
+	
+	
 	strcpy(path, argv[argc-3]);
 	strcat(path, ".qgc");
 	GC_ctrl = fopen(path, "r");
@@ -1235,6 +1256,14 @@ int main_sparse_kmer(int argc, char ** argv){
 	extern char *optarg;
 	uint16_t window_size = 1000;
 	FILE * Control_bed = NULL;
+	
+	if (argc < 2){
+		puts("quicKmer2 sparse bp ref.fa");
+		puts("\tbp\tReduce number of kmer to every 1/bp");
+		return 1;
+	}
+	
+	
 	while ((getopt_return = getopt(argc, argv, "hw:c:")) != -1)
 	{
 		uint16_t len;
