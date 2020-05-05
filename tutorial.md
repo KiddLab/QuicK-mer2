@@ -104,7 +104,8 @@ drwxrwxr-x 2 jmkidd kiddlab 172 May  5 12:41 GRCh38
 drwxrwxr-x 3 jmkidd kiddlab 223 May  5 12:24 QuicK-mer2
 drwxrwxr-x 2 jmkidd kiddlab 160 May  5 12:52 sample-data
 drwxrwxr-x 2 jmkidd kiddlab   0 May  5 13:24 sample-out
-[jmkidd@gl-login1 qm2-tutorial]$ 
+
+
 [jmkidd@gl-login1 qm2-tutorial]$ ls -lh *
 GRCh38:
 total 67G
@@ -115,13 +116,16 @@ total 67G
 -rw-rw-r-- 1 jmkidd kiddlab 882K Jan 21 16:25 include-control.bed
 
 QuicK-mer2:
-total 992K
+total 1.2M
 -rw-rw-r-- 1 jmkidd kiddlab 1.5K May  5 12:24 lowess.py
+-rwxrwxr-x 1 jmkidd kiddlab 4.0K May  5 16:06 make-colortrack-fordisplay.py
 -rw-rw-r-- 1 jmkidd kiddlab   96 May  5 12:24 makefile
 -rwxrwxr-x 1 jmkidd kiddlab 117K May  5 12:24 quicKmer2
 -rw-rw-r-- 1 jmkidd kiddlab  42K May  5 12:24 QuicKmer.c
--rw-rw-r-- 1 jmkidd kiddlab 3.9K May  5 12:24 README.md
+-rw-rw-r-- 1 jmkidd kiddlab 4.4K May  5 16:06 README.md
 -rwxrwxr-x 1 jmkidd kiddlab 2.1K May  5 12:24 smooth_GC_mrsfast.py
+-rw-rw-r-- 1 jmkidd kiddlab 7.8K May  5 16:06 tutorial.md
+drwxrwxr-x 2 jmkidd kiddlab  284 May  5 16:06 tutorial-sample-results
 
 sample-data:
 total 22G
@@ -137,12 +141,13 @@ total 0
 Then run the following command:
 
 ```
-samtools view -F 3840 -T sample-data/GRCh38_full_analysis_set_plus_decoy_hla.fa --input-fmt-option required_fields=0x202 sample-data/NA12878.final.cram | \
-awk '{print ">\n"$10}' | quicKmer2 count -t 6 GRCh38/GRCh38_BSM.fa /dev/fd/0 sample-out/NA12878.qm2 ;
+samtools view -F 3840 -T sample-data/GRCh38_full_analysis_set_plus_decoy_hla.fa \
+--input-fmt-option required_fields=0x202 sample-data/NA12878.final.cram | \
+awk '{print ">\n"$10}' | quicKmer2 count -t 6 GRCh38/GRCh38_BSM.fa /dev/fd/0 sample-out/NA12878.qm2
 ```
 
 This command used 6 threads for quicKmer2 count.  I run it on a compute node that has 7 available CPU (6 for quicKmer2 and 1 for samtools). Sufficient
-RAM should be available to load the index files and other associated data, ~50 GB should be sufficient. The command should complete in ~25 minutes
+RAM should be available to load the index files and other associated data, ~50 GB should be enough. On my cluster, the command completes in ~25 minutes
 and  will print the following information to standard out:
 
 ```
@@ -162,7 +167,8 @@ Exit quicK-mer2 count
 ```
 
 When completed, it will create two new files in sample-out/:
-`NA12878.qm2.bin` this is the kmer count file
+
+`NA12878.qm2.bin` is the kmer count file
 `NA12878.qm2.txt` is a summary of the depth x GC content profile
 
 
@@ -195,9 +201,11 @@ To create a heatmap view file, the `make-colortrack-fordisplay.py` script can be
 make-colortrack-fordisplay.py --cn sample-out/NA12878.qm2.CN.1k.bed.browser --name NA12878
 ```
 
-This makes the file NA12878.qm2.CN.1k.bed.browser.bedColor which is a heatmap view of the QuicKmer-2 results as a bed9 files which can be converted 
-to bigBed format for easy display.
+This makes the file `NA12878.qm2.CN.1k.bed.browser.bedColor` which is a heatmap view of the QuicKmer-2 results in bed9 format. It can be converted 
+to the bigBed format for easy display.
 
 
+## Step 6 Check results
+Sample output can be found in [tutorial-sample-results/](tutorial-sample-results/)
 
-
+The files are now ready for use for display and analysis.
