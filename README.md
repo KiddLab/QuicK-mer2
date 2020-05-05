@@ -118,5 +118,8 @@ An example command is:
 QuicK-mer2/quicKmer2 est  GENOME/REF/FASTA.fa OUTPUT/DIR/SAMPLE_NAME  OUTPUT/DIR/SAMPLE_NAME.CN.1k.bed
 ```
 
+## Tutorial
+We have written a tutorial that provides instructions for analyzing a sample from the 1000 Genomes Project
+and also includes sample output results.  Please check out the tutorial at [tutorial.md]
 
 
