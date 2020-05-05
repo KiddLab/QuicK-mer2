@@ -16,6 +16,14 @@ to permanently add it, follow the recommendations for installing software and up
 
 If you are interested in generating copy-number estimates based on multi-mapping reads, consider fastCN, accessible at: https://github.com/KiddLab/fastCN
 
+For more information please see [our paper](https://www.mdpi.com/2073-4425/11/2/141).
+
+If you use QuicK-mer2 please cite out paper:
+
+Rapid, Paralog-Sensitive CNV Analysis of 2457 Human Genomes Using QuicK-mer2. Shen F, Kidd JM.
+Genes. 2020 Jan 29;11(2). pii: E141. doi:10.3390/genes11020141. PMID: 32013076
+
+
 ## Usage
 The basic functionality of quickMer2 is described by executing the program with no options.
 
