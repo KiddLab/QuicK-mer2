@@ -120,6 +120,7 @@ QuicK-mer2/quicKmer2 est  GENOME/REF/FASTA.fa OUTPUT/DIR/SAMPLE_NAME  OUTPUT/DIR
 
 ## Tutorial
 We have written a tutorial that provides instructions for analyzing a sample from the 1000 Genomes Project
-and also includes sample output results.  Please check out the tutorial at [tutorial.md]
+and also includes sample output results.  Please check out the [tutorial](tutorial.md) for step by step instructions.
+Sample output can be found in [tutorial-sample-results/](tutorial-sample-results/)
 
 
