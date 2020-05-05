@@ -204,6 +204,7 @@ make-colortrack-fordisplay.py --cn sample-out/NA12878.qm2.CN.1k.bed.browser --na
 This makes the file `NA12878.qm2.CN.1k.bed.browser.bedColor` which is a heatmap view of the QuicKmer-2 results in bed9 format. It can be converted 
 to the bigBed format for easy display.
 
+To save space, I recommend gzipping the `NA12878.qm2.bin` file.
 
 ## Step 6 Check results
 Sample output can be found in [tutorial-sample-results/](tutorial-sample-results/)
