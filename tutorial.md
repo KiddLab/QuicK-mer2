@@ -87,7 +87,7 @@ Reads (formatted as fasta) are extracted from the CRAM using samtools.  Options 
 and omitting unneeded decompression are included.  The results are then piped to the QuicKmer count program
 and saved into a output file.
 
-For this example, the quickmer count program uses six threads and required sufficient RAM (~) to load
+For this example, the quickmer count program uses six threads and required sufficient RAM (~55 Gb) to load
 the index.  You may need to run this on a compute node on your cluster following your own local 
 procedures. First we will make a directory for storing the output.
 
