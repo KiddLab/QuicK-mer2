@@ -110,15 +110,67 @@ uint64_t Reverse_strand_encoded(uint64_t encoded_kmer)
 	return encoded_reverse;
 }
 
-int main_hash(int argc, char ** argv)
-{
-	if (argc < 2){
-		puts("\nquicKmer2 index kmer-file-infile kmer-outfile\n");
+void help_main_hash(){
+		puts("\nquicKmer2 index [Options] kmer-file-infile kmer-outfile\n");		
+		puts("\nOptions:");				
 		puts("makes index from bed file of kmer");
 		puts("kmer-outfile should end in .qm");
 		puts("kmer should be in column 4 of input file and all be of same size");		
-		puts("for now, only default options are implemented for kmer and hash size");		
-		return 1;
+    	puts("-h\t\tShow this help information");
+    	puts("-k [num]\tSize of K-mer. Must be between 3-32. Default 30");
+    	puts("-s [num]\tSize of hash dictionary. Can use suffix G,M,K");					
+	    puts("");
+}
+
+
+
+int main_hash(int argc, char ** argv)
+{
+    char getopt_return;	
+	extern char *optarg;
+
+	if (argc < 2){
+        help_main_hash();
+        return 1;
+	}
+	    		
+	while ((getopt_return = getopt(argc, argv, "hk:s:")) != -1)
+	{
+		uint16_t len;
+		switch (getopt_return)
+		{
+			case 'h':
+				help_main_hash();
+				return 1;
+			case 'k':
+				Set_Kmer_Size(atoi(optarg));
+				printf("[Option] Set %i-mer\n",Kmer_size);
+				break;
+			case 's':
+				len = strlen(optarg);
+				switch (optarg[len-1]){
+					case 'G':
+						Hash_size = (uint64_t) atoi(optarg) << 30;
+						break;
+					case 'M':
+						Hash_size = atoi(optarg) << 20;
+						break;
+					case 'K':
+						Hash_size = atoi(optarg) << 10;
+						break;
+					default:
+						Hash_size = atoi(optarg);
+				}
+				Hash_size = (uint64_t) 1 << (uint8_t) ceil(log2(Hash_size));
+				printf("[Option] Set hash space 0x%lX\n",Hash_size);
+				break;
+			case '?':
+				puts("Option error, check help");
+				help_main_hash();
+				return 1;
+			default:
+				return 1;
+		}
 	}
 	
 	FILE *kmer_list = fopen(argv[argc - 2], "r");
@@ -1445,7 +1497,7 @@ int main(int argc, char** argv)
 {
 	if (argc > 1) {
 		if (strcmp(argv[1], "index") == 0)
-			return main_hash(argc-2, argv+2);
+			return main_hash(argc-1, argv+1);
 		else if (strcmp(argv[1], "count") == 0)
 			return main_count(argc-1, argv+1);
 		else if (strcmp(argv[1], "search") == 0)
