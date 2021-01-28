@@ -89,7 +89,7 @@ To process from an aligned BAM file, a typical command would be:
 
 ```
 samtools view -F 3840 PATH/TO/BAM/FILE | awk '{print ">\n"$10}' | 
-QuicK-mer2/quicKmer2 count -t NUMTHREADS /dev/fd/0 GENOME/REF/FASTA.fa  OUTPUT/DIR/SAMPLE_NAME
+QuicK-mer2/quicKmer2 count -t NUMTHREADS GENOME/REF/FASTA.fa /dev/fd/0 OUTPUT/DIR/SAMPLE_NAME
 ```
 
 For CRAM files, you made need to include the genome reference file (using `samtools -T`).  CRAM 
