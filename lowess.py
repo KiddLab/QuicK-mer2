@@ -27,7 +27,12 @@ function will run faster with a smaller number of iterations."""
             b = numpy.array([sum(weights*y), sum(weights*y*x)])
             A = numpy.array([[sum(weights), sum(weights*x)],
                              [sum(weights*x), sum(weights*x*x)]])
-            beta = numpy.linalg.solve(A,b)
+
+#            beta = numpy.linalg.solve(A,b)            
+            # changed to deal with rare cases with a singular matrix error
+            beta = numpy.linalg.lstsq(A,b,rcond=-1)[0]
+               
+            
             yest[i] = beta[0] + beta[1]*x[i]
         residuals = y-yest
         s = numpy.median(abs(residuals))
