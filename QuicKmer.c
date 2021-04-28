@@ -664,7 +664,7 @@ int main_estimate(int argc, char ** argv){
 		read_size >>= 1;
 		uint32_t cur_idx = 0;
 		while (cur_idx < read_size){
-			if (kmer_idx > cur_window_right) {
+			if (kmer_idx >= cur_window_right) {
 				cur_window_depth /= cur_window_right - cur_window_left;
 				cur_window_depth /= total_depth/2;
 				sprintf(str_buf, "%s\t%s\t%s\t%f\n",chrom, win_begin, win_end,cur_window_depth);

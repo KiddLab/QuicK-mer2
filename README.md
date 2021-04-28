@@ -124,3 +124,7 @@ and also includes sample output results.  Please check out the [tutorial](tutori
 Sample output can be found in [tutorial-sample-results/](tutorial-sample-results/)
 
 
+## Bug fixes
+2021-04-28: Fixed off by one error in quicKmer2  est that effects results for small window sizes
+
+
