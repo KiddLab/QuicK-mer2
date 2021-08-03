@@ -23,8 +23,6 @@ Genes. 2020 Jan 29;11(2). pii: E141. doi:10.3390/genes11020141. PMID: 32013076
 ```
 
 
-
-
 If you are interested in generating copy-number estimates based on multi-mapping reads, consider fastCN, accessible at: https://github.com/KiddLab/fastCN
 
 
@@ -127,17 +125,7 @@ Sample output can be found in [tutorial-sample-results/](tutorial-sample-results
 ## Updates and Bug fixes
 <b>2021-8-03:</b> Update for long reads <br>
 Running quicKmer2 on HiFi data involves lines in
-fastq files that are longer than the buffer used by quicKmer2 for processing data. Since
-it is unclear how long to make this buffer, the solution is to convert the fastq files to fasta files
-that are folded or wrapped to have 50 bp of sequence per line.  This can be done
-with the script `fastq-to-fasta-folded.py`.  Note that this may be less efficient than other approaches.
-
-Here is a sample command for PacBio HiFi data:
-```
-zcat path/to/pacbio/SRR*fastq.gz | \
-fastq-to-fasta-folded.py | \
-quicKmer2 count -t 6 GRCh38/GRCh38_BSM.fa /dev/fd/0 sample-out/HG002.qm2
-```
+fastq files that are longer than the buffer used by quicKmer2 for processing data.
 
 <b>2021-04-28:</b> Fixed off by one error in quicKmer2  est that effects results for small window sizes
 
