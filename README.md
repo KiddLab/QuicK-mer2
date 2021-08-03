@@ -126,11 +126,11 @@ Sample output can be found in [tutorial-sample-results/](tutorial-sample-results
 
 ## Updates and Bug fixes
 <b>2021-8-03:</b> Update for long reads <br>
-Running quicKmer2 on HiFi data presents problems since the long reads result in lines in
-fastq files that are longer than the buffer used by quicKmer2 for processign sequencing data. Since
-it is unclear how long to make this buffer, the solution is convert the fastq files to fasta files
+Running quicKmer2 on HiFi data involves lines in
+fastq files that are longer than the buffer used by quicKmer2 for processing data. Since
+it is unclear how long to make this buffer, the solution is to convert the fastq files to fasta files
 that are folded or wrapped to have 50 bp of sequence per line.  This can be done
-with the script fastq-to-fasta-folded.py.  Note that this is less efficient than other approaches.
+with the script `fastq-to-fasta-folded.py`.  Note that this may be less efficient than other approaches.
 
 Here is a sample command for PacBio HiFi data:
 ```
