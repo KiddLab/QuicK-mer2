@@ -124,7 +124,21 @@ and also includes sample output results.  Please check out the [tutorial](tutori
 Sample output can be found in [tutorial-sample-results/](tutorial-sample-results/)
 
 
-## Bug fixes
+## Updates and Bug fixes
+2021-8-03: Update for long reads
+Running quicKmer2 on HiFi data presents problems since the long reads result in lines in
+fastq files that are longer than the buffer used by quicKmer2 for processign sequencing data. Since
+it is unclear how long to make this buffer, the solution is convert the fastq files to fasta files
+that are folded or wrapped to have 50 bp of sequence per line.  This can be done
+with the script fastq-to-fasta-folded.py.  Note that this is less efficient than other approaches.
+
+Here is a sample command for PacBio HiFi data:
+```
+zcat path/to/pacbio/SRR*fastq.gz | \
+ fastq-to-fasta-folded2.py | \
+ quicKmer2 count -t 6 GRCh38/GRCh38_BSM.fa /dev/fd/0 sample-out/HG002.qm2
+```
+
 2021-04-28: Fixed off by one error in quicKmer2  est that effects results for small window sizes
 
 
