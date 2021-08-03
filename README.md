@@ -135,8 +135,8 @@ with the script `fastq-to-fasta-folded.py`.  Note that this may be less efficien
 Here is a sample command for PacBio HiFi data:
 ```
 zcat path/to/pacbio/SRR*fastq.gz | \
- fastq-to-fasta-folded2.py | \
- quicKmer2 count -t 6 GRCh38/GRCh38_BSM.fa /dev/fd/0 sample-out/HG002.qm2
+fastq-to-fasta-folded2.py | \
+quicKmer2 count -t 6 GRCh38/GRCh38_BSM.fa /dev/fd/0 sample-out/HG002.qm2
 ```
 
 <b>2021-04-28:</b> Fixed off by one error in quicKmer2  est that effects results for small window sizes
