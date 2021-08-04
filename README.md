@@ -125,7 +125,9 @@ Sample output can be found in [tutorial-sample-results/](tutorial-sample-results
 ## Updates and Bug fixes
 <b>2021-8-03:</b> Update for long reads <br>
 Running quicKmer2 on HiFi data involves lines in
-fastq files that are longer than the buffer used by quicKmer2 for processing data.
+fastq files that are longer than the buffer used by quicKmer2 for processing data. To fix
+this the line buffer length has been increased to 100k characters.  This should work
+for most data sets and has a negligible impact on processing speed. 
 
 <b>2021-04-28:</b> Fixed off by one error in quicKmer2  est that effects results for small window sizes
 
