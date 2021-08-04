@@ -385,16 +385,16 @@ int main_count(int argc, char ** argv)
 	//End thread pool
 	time_t start_time, end_time;
 	time(&start_time);
-	char line[350];
+	char line[100000];
 	thd_idx = 0;
 	char pushed;
 	uint32_t FIFO_write_idx = 0;
 	uint64_t process_kmers = 0;
-	fgets(line, 350, fasta_input);
+	fgets(line, 100000, fasta_input);
 	char set_fastq = 0;
 	if (line[0] == '@') set_fastq = 1;
 	else fseek(fasta_input, 0, SEEK_SET);
-	while (fgets(line, 350, fasta_input)){
+	while (fgets(line, 100000, fasta_input)){
 		if (line[0] == '>') continue;
 		char * seq_char_index = line;
 		uint64_t encoded = 0;
@@ -449,9 +449,9 @@ int main_count(int argc, char ** argv)
 			seq_char_index++;
 		}
 		if (set_fastq){
-			fgets(line, 350, fasta_input);
-			fgets(line, 350, fasta_input);
-			fgets(line, 350, fasta_input);
+			fgets(line, 100000, fasta_input);
+			fgets(line, 100000, fasta_input);
+			fgets(line, 100000, fasta_input);
 		}
 	}
 	//Join threads
