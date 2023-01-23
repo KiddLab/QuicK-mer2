@@ -1,0 +1,15 @@
+QuicK-mer2 Extension for Human Disease Application
+- Activity 1 : Set up Github
+  - Task 1.1: Set up repo
+  - Task 1.2: Create high-level description
+  - Task 1.3: Create code structure 
+- Activity 2: Build prototype 1
+- Activity 2.1: Refine design to describe tasks
+  - Task 2.1.1: Break project into activities
+  - Task 2.2.2: Break project into tasks
+- Activity 2.2: Code the project
+  - Task 2.2.1: Test with QuicK-mer2 sample
+  - Task 2.2.2: Build database of 1000 genomes qm2 files
+  - Task 2.2.3: Define output for submission
+  - Task 2.2.4: Save output
+- Activity 3: Build onto CAVATICA 
