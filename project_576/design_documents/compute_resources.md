@@ -12,3 +12,7 @@ At most, Great Lakes or computer cluster access
 CAVATICA:
 -in the second part of this project, we plan to deploy QuicK-mer2 onto Gabriella Miller Kids' First's own computing program for widespread usage
 -this will not require any computational resources, due to deployment on their specific cloud resource
+
+Computing time:
+-comparison to the 1000 genomes project should only take a few seconds * number of samples needed for comparison
+-ex: testing all 200 patients of a human cohort = approximately 2000 seconds
