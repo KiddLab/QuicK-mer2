@@ -1,1 +1,1 @@
-human_extension_project
+qm2_human_rarity
