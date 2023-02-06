@@ -1,0 +1,8 @@
+README.md
+setup.py
+qm2_human_rarity/__init__.py
+qm2_human_rarity/compare_against_1000.py
+qm2_human_rarity_prj.egg-info/PKG-INFO
+qm2_human_rarity_prj.egg-info/SOURCES.txt
+qm2_human_rarity_prj.egg-info/dependency_links.txt
+qm2_human_rarity_prj.egg-info/top_level.txt
