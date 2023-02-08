@@ -23,9 +23,13 @@ QuicK-mer2 Extension for Human Disease Application
 
 - Activity 2.4: Define output for submission using Python code
   - [X] Task 2.4.1: Identify regions of deletions or duplications 
+
 		- [X] The first implementation of this function will utilize a test matrix to identify at least three consecutive windows in the patient sample with either copy number < 1.5 (deletions) or > 2.5 (duplications) by iterating through each window and merging consecutive regions together until the condition is broke
+
 		- [ ] The second implementation will scale up to use DM09, our test sample identified in Activity 2.2
+
 		- [ ] The third implementation will allow reading in from a list of samples and identifying all deletions/duplications
+
   - [ ] Task 2.4.2: For each identified region of deletion or duplication, check for similar deletions/duplications in the 1000 Genomes Dataset table (Task 2.2.2.3)
   - [ ] Task 2.4.3: Identify all samples that also contain the deletion or duplication, and output a statitics of rarity (% of samples that also contain the region) 
   - [ ] Task 2.4.3.1: Possibility: identify any connected populations that may or may not contain the deletion or duplication 
