@@ -17,19 +17,23 @@ def read_in_qm2(filename):
     f = open(filename, 'rt')
     inFile = f.readlines()
 
-    # parse file
-    for line in inFile:
-        line = line.rstrip().split()
-        coord = (line[0], line[1], line[2])
-        sample_dict[coord] = float(line[3])  # key = coordinates in bed format (chro, start, end); value = copy number in float
-        sample_table[1, table_key] = float(line[3])  # assigning the correct column with the copy number as a float
-        table_key += 1
-        if table_key == human_window_count:
-            print("The windows of this sample exceeds the number of GrCH38 windows.")
-            break
-    f.close()
-
-    return sample_table
+    file_size = len(inFile)
+    if file_size != human_window_count:
+        # error catch for if the BED file is not mapped to GrCH38
+        print("The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample "
+              "has been mapped to GrCH38, and has been processed through QuicK-mer2.")
+        f.close()
+        return()
+    else:
+        # parse file
+        for line in inFile:
+            line = line.rstrip().split()
+            coord = (line[0], line[1], line[2])
+            sample_dict[coord] = float(line[3])  # key = coordinates in bed format (chro, start, end); value = copy number in float
+            sample_table[0, table_key] = float(line[3])  # assigning the correct column with the copy number as a float
+            table_key += 1
+        f.close()
+        return sample_table
 
 
 def build_1000_genomes(file_list):
@@ -44,6 +48,8 @@ def find_deletions(sample_table):
     copy number below 1.5, and the overall list that contains the series of deletions found in sample_table
     """
     # tested and implemented
+    if sample_table is None:
+        return "No table provided."
     dele = False
     final_dels = []
     current = []
@@ -64,7 +70,10 @@ def find_deletions(sample_table):
 
         window_index += 1
 
-    return final_dels
+    if len(final_dels) == 0:
+        return "No deletions found in this sample."
+    else:
+        return final_dels
 
 
 def find_dups(sample_table):
@@ -75,6 +84,8 @@ def find_dups(sample_table):
     copy number above 2.5, and the overall list that contains the series of duplications found in sample_table
     """
     # tested and implemented
+    if sample_table is None:
+        return "No table provided."
     dup = False
     final_dups = []
     current = []
@@ -94,5 +105,7 @@ def find_dups(sample_table):
                 current.append([cn, window_index])
 
         window_index += 1
-
-    return final_dups
+    if len(final_dups) == 0:
+        return "No duplications found in this sample."
+    else:
+        return final_dups
