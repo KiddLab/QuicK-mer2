@@ -1,9 +1,12 @@
 QuicK-mer2 Extension for Human Disease Application
 
-- Activity 1 : Set up Github
+- Activity 1: Set up Github
   - [X] Task 1.1: Set up repo
   - [X] Task 1.2: Create high-level description
   - [X] Task 1.3: Create code structure 
+
+- Activity 1.1: For non-builders, fork from QuicK-mer2
+  - [X] Task 1.1.1: Process a test file from https://github.com/KiddLab/QuicK-mer2 
 
 - Activity 2: Build prototype 1
 

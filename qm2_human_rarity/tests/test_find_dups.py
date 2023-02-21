@@ -11,7 +11,8 @@ def test_find_dups():
     dup_windows = compare_against_1000.find_dups(test_array, test_chro_dict)
     assert test_answer == dup_windows, "The correct test array is [[[3, 2], [4, 3], [5, 4], [6, 5]]]."
 
-def test_find_dups_chro_break():
+
+def test_find_dups_chro_break_and_end():
     test_array = np.array([1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6, 2, 1, 4, 5, 6])
     test_chro_dict = {}
     for i in range(17):

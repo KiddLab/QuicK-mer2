@@ -19,11 +19,11 @@ def read_in_qm2(filename):
 
     file_size = len(inFile)
     if file_size != human_window_count:
+        print(file_size, human_window_count)
         # error catch for if the BED file is not mapped to GrCH38
-        print("The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample "
-              "has been mapped to GrCH38, and has been processed through QuicK-mer2.")
         f.close()
-        return ()
+        return ("The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample "
+                "has been mapped to GrCH38, and has been processed through QuicK-mer2.")
     else:
         # parse file
         for line in inFile:
@@ -80,7 +80,7 @@ def find_deletions(sample_table, sample_dict):
 
         window_index += 1
 
-    if len(current) >= 3: # if sample ends on a valid duplication, add it
+    if len(current) >= 3: # if sample ends on a valid deletion, add it
         final_dels.append(current)
 
     if len(final_dels) == 0:

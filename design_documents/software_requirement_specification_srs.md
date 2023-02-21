@@ -1,11 +1,11 @@
 # Software requirement specification v1.0
-For: QuicK-mer2 
+For: QuicK-mer2 Human Extension
 By: Anthony Nguyen
 
 1.	Introduction
 This is an extension of the tool QuicK-mer2, developed by Dr. Jeffrey Kidd (https://github.com/KiddLab/QuicK-mer2). This extension has two phases: human genome comparison, and implementation onto Cavatica, a browser used specifically by the Gabriella Miller Kids First data project. 
 
-2.	Overall Description
+2.	Overall Description of Phases
 In the first phase, a novel extension of QuicK-mer2 will be developed, in which human samples processed by QuicK-mer2 using GrCH38 will be compared against samples derived from the 1000 Genome Project for comparison to determine rare duplications and deletions. 
 	Input: a BAM or CRAM file of a human sample into QuicK-mer2, processed into the BED file produced by QuicK-mer2
 	Output: A BED file describing each determined duplication and deletion (based on CN that either exceed 2.5 or are below 1.5 in copy number) and how many 1000 genomes samples contain the same deletion/duplication (as a %)
