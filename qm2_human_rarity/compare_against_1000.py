@@ -19,11 +19,11 @@ def read_in_qm2(filename):
 
     file_size = len(inFile)
     if file_size != human_window_count:
-        print(file_size, human_window_count)
         # error catch for if the BED file is not mapped to GrCH38
         f.close()
-        return ("The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample "
-                "has been mapped to GrCH38, and has been processed through QuicK-mer2.")
+        raise Exception(
+            "The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample "
+            "has been mapped to GrCH38, and has been processed through QuicK-mer2.")
     else:
         # parse file
         for line in inFile:
@@ -80,7 +80,7 @@ def find_deletions(sample_table, sample_dict):
 
         window_index += 1
 
-    if len(current) >= 3: # if sample ends on a valid deletion, add it
+    if len(current) >= 3:  # if sample ends on a valid deletion, add it
         final_dels.append(current)
 
     if len(final_dels) == 0:
@@ -128,10 +128,65 @@ def find_dups(sample_table, sample_dict):
                 current.append([cn, window_index])
         window_index += 1
 
-    if len(current) >= 3: # if sample ends on a valid duplication, add it
+    if len(current) >= 3:  # if sample ends on a valid duplication, add it
         final_dups.append(current)
 
     if len(final_dups) == 0:
         return "No duplications found in this sample."
     else:
         return final_dups
+
+
+def get_coords(start, end, sample_dict):
+    """
+    :param start: window index of the beginning of the duplication/deletion
+    :param end: window index of the end of the duplication/deletion
+    :param sample_dict: dictionary initialized by read_in_qm2 with window -> coordinates conversion
+    :return: a list, with the chromosome, start genomic bp, and end genomic bp
+    """
+    chro = sample_dict[start][0]
+    chro_check = sample_dict[end][0]
+    if chro != chro_check:
+        raise Exception("Chromosomes do not match between start and end windows.")
+    start_coord = sample_dict[start][1]
+    end_coord = sample_dict[end][2]
+    if int(start_coord) >= int(end_coord):
+        raise Exception("End coordinate is greater than start - double-check arguments.")
+    else:
+        return [chro, start_coord, end_coord]
+
+
+def write_dups_and_dels(sample_dict, final_dups=None, final_dels=None, sample_name="sample"):
+    """
+    :param final_dups: duplications passed by find_dups, defaults to None
+    :param final_dels: deletions passed by find_dels, defaults to None
+    :param sample_dict: dictionary with coord conversion initialized by read_in_qm2
+    :param sample_name: name of the sample for writing, defaults to "sample"
+    :return: N/A, writes files
+    """
+    if final_dups is not None:
+        f = open("{}_duplications.bed".format(sample_name), 'w')
+        for dup in final_dups:
+            start_window = dup[0][1]
+            end_window = dup[-1][1]
+            coords = get_coords(start_window, end_window, sample_dict)
+            all_cn = []
+            for windows in dup:
+                all_cn.append(windows[0])
+            dup_cn = np.median(all_cn)
+            f.write('\t'.join(coords) + '\t' + str(dup_cn) + '\n')
+        f.close()
+    if final_dels is not None:
+        f = open("{}_deletions.bed".format(sample_name), 'w')
+        for dele in final_dels:
+            start_window = dele[0][1]
+            end_window = dele[-1][1]
+            coords = get_coords(start_window, end_window, sample_dict)
+            all_cn = []
+            for windows in dele:
+                all_cn.append(windows[0])
+            dele_cn = np.median(all_cn)
+            f.write('\t'.join(coords) + '\t' + str(dele_cn) + '\n')
+        f.close()
+
+    return 0

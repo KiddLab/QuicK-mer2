@@ -1,6 +1,7 @@
 from qm2_human_rarity import compare_against_1000
 import numpy as np
 import os.path
+import pytest
 
 
 def test_read_in_qm2_fake_sample():
@@ -31,7 +32,6 @@ def test_read_in_qm2_real_sample():
 
 
 def test_read_in_qm2_incorrect_windows():
-    # creates a test array with 2.4 as all entries
     if os.path.isfile("test_file_wrong_count.bed"):
         pass
     else:
@@ -40,7 +40,5 @@ def test_read_in_qm2_incorrect_windows():
             f.write("chro" + '\t' + "1" + '\t' + '2' + '\t' + '2.4' + '\n')
         f.close()
     test_file = "test_file_wrong_count.bed"
-    output_answer = compare_against_1000.read_in_qm2(test_file)
-    test_answer = "The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample " \
-                  "has been mapped to GrCH38, and has been processed through QuicK-mer2."
-    assert test_answer == output_answer, "Sample should be mapped to GrCH38."
+    with pytest.raises(Exception):
+        compare_against_1000.read_in_qm2(test_file)

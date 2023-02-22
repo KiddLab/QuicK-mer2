@@ -23,7 +23,8 @@ def test_find_dels_chro_break():
     del_windows = compare_against_1000.find_deletions(test_array, test_chro_dict)
     assert test_answer == del_windows, "The correct test array is [[[1.3, 3], [1.4, 4], [1.45, 5]] due to chromosome break."
 
-def test_find_dels_end_of_file(): #add implement for end of file deletion
+
+def test_find_dels_end_of_file():
     test_array = np.array([1.1, 1.2, 2, 1.3, 1.4, 1.45, 5, 1.3, 1.3, 1.4, 1.2, 1.3])
     test_chro_dict = {}
     for i in range(13):
