@@ -1,8 +1,8 @@
 from qm2_human_rarity import compare_against_1000
 import pytest
 
-test_file = "qm2_human_rarity/DM09.qm2.CN.1k.bed"
-output_table, output_dict = compare_against_1000.read_in_qm2(test_file)
+test_file = "qm2_human_rarity/DM09_subset.qm2.bed"
+output_table, output_dict = compare_against_1000.read_in_qm2(test_file, False)
 
 
 def test_get_coords():

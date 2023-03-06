@@ -1,39 +1,39 @@
 import numpy as np
 
 
-def read_in_qm2(filename):
+def read_in_qm2(filename, is_human=False):
     """
     Read in a BED file produced by QuicK-mer2, and create a numpy array with one row and 2300498 windows, where each
     value is the copy number for that particular window
+    is_human: a Boolean value to indicate that this is a human sample processed by GrCH38
     Return: sample_table, the numpy array
     """
     # set variables
     human_window_count = 2300498  # the number of QM2 windows produced by a sample that has been processed to GrCH38
-    sample_table = np.zeros((1, human_window_count), dtype=np.single)
     table_key = 0
     sample_dict = {}
 
     # open file
     f = open(filename, 'rt')
     inFile = f.readlines()
-
     file_size = len(inFile)
-    if file_size != human_window_count:
+    sample_table = np.zeros(file_size, dtype=np.single)
+
+    if is_human is True and file_size != human_window_count:
         # error catch for if the BED file is not mapped to GrCH38
         f.close()
         raise Exception(
             "The windows of this sample is not equal to the number of GrCH38 windows. Double-check that this sample "
             "has been mapped to GrCH38, and has been processed through QuicK-mer2.")
-    else:
-        # parse file
-        for line in inFile:
-            line = line.rstrip().split()
-            coord = (line[0], line[1], line[2])
-            sample_dict[table_key] = coord  # key = table_index/window number, coord = coordinates of the window
-            sample_table[0, table_key] = float(line[3])  # assigning the correct column with the copy number as a float
-            table_key += 1
-        f.close()
-        return sample_table, sample_dict
+    # parse file
+    for line in inFile:
+        line = line.rstrip().split()
+        coord = (line[0], line[1], line[2])
+        sample_dict[table_key] = coord  # key = table_index/window number, coord = coordinates of the window
+        sample_table[table_key] = float(line[3])  # assigning the correct column with the copy number as a float
+        table_key += 1
+    f.close()
+    return sample_table, sample_dict
 
 
 def build_1000_genomes(file_list):
@@ -164,29 +164,4 @@ def write_dups_and_dels(sample_dict, final_dups=None, final_dels=None, sample_na
     :param sample_name: name of the sample for writing, defaults to "sample"
     :return: N/A, writes files
     """
-    if final_dups is not None:
-        f = open("{}_duplications.bed".format(sample_name), 'w')
-        for dup in final_dups:
-            start_window = dup[0][1]
-            end_window = dup[-1][1]
-            coords = get_coords(start_window, end_window, sample_dict)
-            all_cn = []
-            for windows in dup:
-                all_cn.append(windows[0])
-            dup_cn = np.median(all_cn)
-            f.write('\t'.join(coords) + '\t' + str(dup_cn) + '\n')
-        f.close()
-    if final_dels is not None:
-        f = open("{}_deletions.bed".format(sample_name), 'w')
-        for dele in final_dels:
-            start_window = dele[0][1]
-            end_window = dele[-1][1]
-            coords = get_coords(start_window, end_window, sample_dict)
-            all_cn = []
-            for windows in dele:
-                all_cn.append(windows[0])
-            dele_cn = np.median(all_cn)
-            f.write('\t'.join(coords) + '\t' + str(dele_cn) + '\n')
-        f.close()
-
-    return 0
+    pass # for homework implementation
