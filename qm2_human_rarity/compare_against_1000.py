@@ -164,4 +164,4 @@ def write_dups_and_dels(sample_dict, final_dups=None, final_dels=None, sample_na
     :param sample_name: name of the sample for writing, defaults to "sample"
     :return: N/A, writes files
     """
-    pass # for homework implementation
+    pass  # for homework implementation
