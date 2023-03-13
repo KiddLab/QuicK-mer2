@@ -36,10 +36,6 @@ def read_in_qm2(filename, is_human=False):
     return sample_table, sample_dict
 
 
-def build_1000_genomes(file_list):
-    pass
-
-
 def find_deletions(sample_table, sample_dict):
     """
     :param sample_dict: a dictionary provided by file read-in, where key = table index and value = coordinates of the window
@@ -154,6 +150,54 @@ def get_coords(start, end, sample_dict):
         raise Exception("End coordinate is greater than start - double-check arguments.")
     else:
         return [chro, start_coord, end_coord]
+
+
+def compare_1000_genomes(sample_dict, normalcy_file_path, final_dups=None, final_dels=None):
+    """
+    :param sample_dict: dictionary initialized by read_in_qm2 with window -> coordinates conversion
+    :param normalcy_file_path: file path as a string to where the "99_normalcy_range_tenk_genomes.npy" file is located
+    :param final_dups: dups produced by find_dups
+    :param final_dels: deletions produced by find_deletions
+    :return: dup_normal_bool and del_normal_bool; both are dictionaries, with key = coordinates in UCSC format and value
+    is True or False, depending on whether or not that duplication or deletion is rare; rarity is defined as the median
+    copy number of the sample duplication/deletion falling outside of 99% of the 1000 Genomes range for those same
+    windows
+    """
+    normalcy = np.load(normalcy_file_path)
+    dup_normal_bool = {}
+    del_normal_bool = {}
+    if final_dups is not None:
+        for dup in final_dups:
+            cn_list = []
+            dup_windows = []
+            for window in dup:
+                cn_list.append(window[0])
+                dup_windows.append(window[1])
+            median_sample_cn = np.median(cn_list)
+            max_normal = np.max(normalcy[dup_windows[0]:dup_windows[-1]])
+            sample_dup = get_coords(dup_windows[0], dup_windows[-1], sample_dict)
+            sample_dup_str = "{}:{}-{}".format(sample_dup[0], sample_dup[1], sample_dup[2])
+            if median_sample_cn > max_normal:
+                dup_normal_bool[sample_dup_str] = True
+            else:
+                dup_normal_bool[sample_dup_str] = False
+    if final_dels is not None:
+        for dele in final_dels:
+            cn_list = []
+            del_windows = []
+            for window in dele:
+                cn_list.append(window[0])
+                del_windows.append(window[1])
+            median_sample_cn = np.median(cn_list)
+            min_normal = np.min(normalcy[del_windows[0]:del_windows[-1]])
+            sample_del = get_coords(del_windows[0], del_windows[-1], sample_dict)
+            sample_del_str = "{}:{}-{}".format(sample_del[0], sample_del[1], sample_del[2])
+            if median_sample_cn < min_normal:
+                del_normal_bool[sample_del_str] = True
+            else:
+                del_normal_bool[sample_del_str] = False
+
+    return dup_normal_bool, del_normal_bool
 
 
 def write_dups_and_dels(sample_dict, final_dups=None, final_dels=None, sample_name="sample"):
