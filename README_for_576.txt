@@ -28,12 +28,9 @@ Follow the tutorial_notebook.ipynb for additional details for processing DM09_su
 	- The result is a dictionary of duplications and a dictionary of deletions, where the key is the variant and the value is True or False, with True indicating that this variation is rare, and outside of the boundary of 99% of the 1000 Genomes. 
 
 
-Output duplications and deletions as a file using compare_against_1000.write_dups_and_dels(output_dict, dups, deletions, sample_name)
+6. Output duplications and deletions as a file using compare_against_1000.write_dups_and_dels(output_dict, dups, deletions, sample_name)
 	- The output_dict is the same one from Step 2
 	- Dups are produced by Step 3; this is optional, can do just deletions
 	- Deletions are produced by Step 4; this is optional, can do just duplications
 	- sample_name is an optional name, defaults to "sample"; can pass "DM09_subset" as the sample name
 	- This function will write two files, sample_name_duplications.bed and sample_name_deletions.bed 
-
-6. Comparing duplications and deletions using compare_against_1000.find_rarity
-	- To be coded 

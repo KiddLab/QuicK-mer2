@@ -1,0 +1,34 @@
+# name of the workflow
+name: greet
+
+# when the workflow should run
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+# independent jobs in the workflow
+jobs:
+  # this workflow just has one job called "greet"
+  greet:
+    # the operating system to use for this workflow
+    runs-on: ubuntu-latest
+    # list of steps in the workflow
+    steps:
+      # use an action provided by github to checkout the repo
+      - uses: actions/checkout@v3
+      # a custom step that runs a couple shell commands
+      - name: List
+        run: |
+            echo "listing files in the QuicK-mer2_human_rarity_determination directory"
+            ls QuicK-mer2_human_rarity_determination
+      # a custom step that runs R code
+      - name: Greet
+        run: print("Hello, world!")
+        # Replace `shell: Rscript {0}` with `shell: python {0}` to run Python code instead!
+        shell: Rscript {0}
