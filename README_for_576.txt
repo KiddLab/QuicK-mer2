@@ -22,7 +22,13 @@ Follow the tutorial_notebook.ipynb for additional details for processing DM09_su
 	- The arguments are the numpy table and dictionary produced by step 2
 	- The result is a list of lists of pairs, where each pair is [Copy number, window index], each inner list is a single deletion containing all the windows fulfilling the condition (cn < 1.5), and the final list is a compilation of all deletions found in the sample.
 
-5. Output duplications and deletions as a file using compare_against_1000.write_dups_and_dels(output_dict, dups, deletions, sample_name)
+5. Comparing duplications and deletions using compare_against_1000.compare_1000_genomes
+	- The arguments are the numpy dictionary produced by step 2, a path to the provided 99_normalcy_range_tenk_genomes.npy, and the dups and dels provided by steps 3 and 4 (both optional arguments)
+	- The 99_normalcy numpy table is an array where each column is a QuicK-mer2 window sized to GrCH38, and values are the copy number range that encompasses 99% of the copy number range seen in the 1000 Genomes dataset
+	- The result is a dictionary of duplications and a dictionary of deletions, where the key is the variant and the value is True or False, with True indicating that this variation is rare, and outside of the boundary of 99% of the 1000 Genomes. 
+
+
+Output duplications and deletions as a file using compare_against_1000.write_dups_and_dels(output_dict, dups, deletions, sample_name)
 	- The output_dict is the same one from Step 2
 	- Dups are produced by Step 3; this is optional, can do just deletions
 	- Deletions are produced by Step 4; this is optional, can do just duplications

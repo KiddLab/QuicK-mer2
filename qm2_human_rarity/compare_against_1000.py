@@ -208,20 +208,45 @@ def write_dups_and_dels(sample_dict, final_dups=None, final_dels=None, sample_na
     :param sample_name: name of the sample for writing, defaults to "sample"
     :return: N/A, writes files
     """
-    output_file = open(sample_name + ".bed", "w")
-    for type in [final_dups, final_dels]:
-        for entry in type:
-            copy_num_list = []
-            window_list = []
-            for sub_entry in entry:
-                copy_num_list.append(sub_entry[0])
-                window_list.append(sub_entry[1])
-            median_sample_cn = np.median(copy_num_list)
-            sample_info = get_coords(window_list[0], window_list[-1], sample_dict)
-            chr_num = sample_info[0]
-            coor_start = sample_info[1]
-            coor_end = sample_info[2]
-            output_ls = "\t".join(str(chr_num)+str(coor_start)+str(coor_end)+str(median_sample_cn))
-            output_file.write(str(chr_num)+ "\t" + str(coor_start)+ "\t" + str(coor_end)+ "\t" + str(median_sample_cn) + "\n")   
-    
-    output_file.close()
+    if final_dups is not None:
+        f = open("{}_duplications.bed".format(sample_name), 'w')
+        for dup in final_dups:
+            start_window = dup[0][1]
+            end_window = dup[-1][1]
+            coords = get_coords(start_window, end_window, sample_dict)
+            all_cn = []
+            for windows in dup:
+                all_cn.append(windows[0])
+            dup_cn = np.median(all_cn)
+            f.write('\t'.join(coords) + '\t' + str(dup_cn) + '\n')
+        f.close()
+    if final_dels is not None:
+        f = open("{}_deletions.bed".format(sample_name), 'w')
+        for dele in final_dels:
+            start_window = dele[0][1]
+            end_window = dele[-1][1]
+            coords = get_coords(start_window, end_window, sample_dict)
+            all_cn = []
+            for windows in dele:
+                all_cn.append(windows[0])
+            dele_cn = np.median(all_cn)
+            f.write('\t'.join(coords) + '\t' + str(dele_cn) + '\n')
+        f.close()
+
+
+def write_rarity(sample_name, dup_rarity_dict, del_rarity_dict):
+    """
+    :param dup_rarity_dict: the dictionary of rare duplications produced by compare_1000_genomes
+    :param del_rarity_dict: the dictionary of rare deletions produced by compare_1000_genomes
+    :return: N/A
+    """
+    f = open("{}.rare_duplications.csv".format(sample_name), 'w')
+    for dup, rarity in dup_rarity_dict.items():
+        f.write(str(dup) + ',' + str(rarity) + '\n')
+    f.close()
+
+    f = open("{}.rare_deletions.csv".format(sample_name), 'w')
+    for dup, rarity in del_rarity_dict.items():
+        f.write(str(dup) + ',' + str(rarity) + '\n')
+    f.close()
+
